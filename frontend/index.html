@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🖥️ System Monitor Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <h1><i class="fas fa-desktop"></i> System Monitor</h1>
+            </div>
+            <div class="header-right">
+                <div class="status">
+                    <span id="connection-status" class="status-indicator status-offline">
+                        <i class="fas fa-circle"></i> Offline
+                    </span>
+                    <span id="last-update" class="update-time">
+                        <i class="far fa-clock"></i> Last update: --:--:--
+                    </span>
+                </div>
+                <div class="controls">
+                    <button id="themeToggle" class="btn-icon" title="Toggle theme">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <button id="refreshBtn" class="btn-icon" title="Refresh">
+                        <i class="fas fa-redo"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="dashboard">
+            <!-- CPU Card -->
+            <div class="card cpu-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-microchip"></i> CPU</h2>
+                    <div class="card-value" id="cpuValue">0%</div>
+                </div>
+                <div class="card-content">
+                    <div class="gauge-container">
+                        <canvas id="cpuGauge" width="180" height="180"></canvas>
+                        <div class="gauge-center" id="cpuGaugeCenter">0%</div>
+                    </div>
+                    <div class="cpu-details">
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-cogs"></i> Cores:</span>
+                            <span id="cpuCores">0</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-thermometer-half"></i> Temperature:</span>
+                            <span id="cpuTemp">-- °C</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-tachometer-alt"></i> Frequency:</span>
+                            <span id="cpuFreq">-- MHz</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="cpu-cores-section">
+                    <h3><i class="fas fa-layer-group"></i> Cores</h3>
+                    <div id="coresContainer" class="cores-grid"></div>
+                </div>
+            </div>
+
+            <!-- Memory Card -->
+            <div class="card memory-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-memory"></i> Memory</h2>
+                    <div class="card-value" id="memoryValue">0%</div>
+                </div>
+                <div class="card-content">
+                    <div class="gauge-container">
+                        <canvas id="memoryGauge" width="180" height="180"></canvas>
+                        <div class="gauge-center" id="memoryGaugeCenter">0%</div>
+                    </div>
+                    <div class="memory-details">
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-database"></i> Total:</span>
+                            <span id="memTotal">0 GB</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-chart-pie"></i> Used:</span>
+                            <span id="memUsed">0 GB</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-chart-line"></i> Free:</span>
+                            <span id="memFree">0 GB</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-archive"></i> Cached:</span>
+                            <span id="memCached">0 GB</span>
+                        </div>
+                        <div class="memory-bar-container">
+                            <div class="bar">
+                                <div id="memBarUsed" class="bar-used"></div>
+                                <div id="memBarCached" class="bar-cached"></div>
+                            </div>
+                            <div class="bar-labels">
+                                <span>Used</span>
+                                <span>Cached</span>
+                                <span>Free</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPU Card -->
+            <div class="card gpu-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-gamepad"></i> GPU</h2>
+                    <div class="card-value" id="gpuValue">0%</div>
+                </div>
+                <div class="card-content">
+                    <div class="gauge-container">
+                        <canvas id="gpuGauge" width="180" height="180"></canvas>
+                        <div class="gauge-center" id="gpuGaugeCenter">0%</div>
+                    </div>
+                    <div class="gpu-details">
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-video"></i> Name:</span>
+                            <span id="gpuName" class="gpu-name">Unknown</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-microchip"></i> Memory:</span>
+                            <span id="gpuMemUsed">0 GB</span> / <span id="gpuMemTotal">0 GB</span>
+                            <span id="gpuMemPercent">(0%)</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-thermometer-half"></i> Temperature:</span>
+                            <span id="gpuTemp">-- °C</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-bolt"></i> Power:</span>
+                            <span id="gpuPower">-- W</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label"><i class="fas fa-tachometer-alt"></i> Clock:</span>
+                            <span id="gpuClock">-- MHz</span>
+                        </div>
+                        <div class="gpu-memory-bar">
+                            <div class="bar">
+                                <div id="gpuMemBar" class="bar-used"></div>
+                            </div>
+                            <div class="bar-labels">
+                                <span>VRAM Usage</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History Card -->
+            <div class="card wide history-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-chart-line"></i> System History</h2>
+                    <div class="time-range">
+                        <select id="historyRange">
+                            <option value="5">Last 5 min</option>
+                            <option value="10" selected>Last 10 min</option>
+                            <option value="30">Last 30 min</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="chart-container">
+                        <canvas id="historyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPU History Card -->
+            <div class="card wide gpu-history-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-chart-area"></i> GPU History</h2>
+                </div>
+                <div class="card-content">
+                    <div class="chart-container">
+                        <canvas id="gpuChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Processes Card -->
+            <div class="card wide processes-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-tasks"></i> Top Processes</h2>
+                    <div class="controls">
+                        <div class="search-box">
+                            <input type="text" id="searchProcess" placeholder="Search processes...">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <div class="sort-controls">
+                            <label>Sort by:</label>
+                            <select id="sortBy">
+                                <option value="cpu">CPU Usage</option>
+                                <option value="memory">Memory</option>
+                                <option value="name">Name</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="table-container">
+                        <table id="processTable">
+                            <thead>
+                                <tr>
+                                    <th>PID</th>
+                                    <th>Name</th>
+                                    <th>Status</th>
+                                    <th>CPU %</th>
+                                    <th>Memory</th>
+                                    <th>Command</th>
+                                </tr>
+                            </thead>
+                            <tbody id="processTableBody">
+                                <tr>
+                                    <td colspan="6" class="loading">Loading processes...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <span id="processCount">0 processes</span>
+                        <div class="pagination">
+                            <button id="prevPage" class="btn-prev" disabled>
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <span id="pageInfo" class="page-info">Page 1</span>
+                            <button id="nextPage" class="btn-next" disabled>
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <div class="footer-left">
+                <p><i class="fas fa-code"></i> System Monitor Dashboard v2.0</p>
+                <p class="build-info">Build: 2024.01.15 | UI: Enhanced</p>
+            </div>
+            <div class="footer-center">
+                <div class="update-controls">
+                    <label><i class="fas fa-sync-alt"></i> Update:</label>
+                    <select id="updateInterval">
+                        <option value="1000">1 second</option>
+                        <option value="2000" selected>2 seconds</option>
+                        <option value="5000">5 seconds</option>
+                        <option value="10000">10 seconds</option>
+                    </select>
+                </div>
+            </div>
+            <div class="footer-right">
+                <p class="connection-info">
+                    <span id="requestCount">0 requests</span>
+                    <span class="divider">|</span>
+                    <span id="responseTime">0ms</span>
+                </p>
+            </div>
+        </footer>
+    </div>
+
+    <div id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
