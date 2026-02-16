@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
     signal(SIGTERM, signal_handler);
     
     printf("================================\n");
-    printf("   System Monitor Server v1.0\n");
+    printf("   System Monitor Server v2.0.0\n");
     printf("================================\n");
     
     if (start_server(port) != 0) {

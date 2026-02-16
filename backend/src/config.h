@@ -1,6 +1,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#define VERSION "2.0.0"
+#define VERSION_DATE "2026-02-16"
+
 #define PORT 8080
 #define BUFFER_SIZE 4096
 #define MAX_PROCESSES 512
