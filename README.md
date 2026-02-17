@@ -7,7 +7,7 @@
 [![Language: JavaScript](https://img.shields.io/badge/language-JavaScript-yellow)](https://www.javascript.com/)
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/AziSarlaks/system-monitor" alt="System Monitor Dashboard" width="800"/>
+  <img src="https://raw.githubusercontent.com/AziSarlaks/system-monitor/master/view.png" alt="System Monitor Dashboard" width="800"/>
 </p>
 
 **System Monitor Server** — это мощный инструмент для мониторинга системы в реальном времени с красивым веб-интерфейсом. Сервер на C собирает данные о системе и отправляет их в браузер через REST API.
