@@ -137,7 +137,7 @@ cat > README.txt << 'EOF'
    • Работает в демо-режиме если сервер недоступен
 
 📞 ПОДДЕРЖКА:
-   • GitHub: https://github.com/AziSarlaks
+   • GitHub: https://github.com/AziSarlaks/system-monitor/issues
    • Email: azisarlaks@gmail.com
 EOF
 

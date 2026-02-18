@@ -79,7 +79,6 @@ void format_system_info_json(char *buffer, int buffer_size,
     int offset = 0;
     time_t now = time(NULL);
     
-    // Проверяем значения GPU на корректность
     if (gpu->memory_total > 100ULL * 1024 * 1024 * 1024) { // Больше 100GB - явно ошибка
         printf("⚠️ GPU memory_total слишком большой: %llu, исправляем\n", gpu->memory_total);
         gpu->memory_total = 8ULL * 1024 * 1024 * 1024; // 8GB

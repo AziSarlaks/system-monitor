@@ -13,7 +13,6 @@
 double get_cpu_temperature() {
     double temp = 0.0;
     
-    // Пробуем разные источники температуры
     const char *temp_paths[] = {
         "/sys/class/thermal/thermal_zone0/temp",
         "/sys/class/hwmon/hwmon0/temp1_input",
@@ -26,7 +25,6 @@ double get_cpu_temperature() {
         if (fp) {
             int temp_raw;
             if (fscanf(fp, "%d", &temp_raw) == 1) {
-                // Обычно температура в миллиградусах Цельсия
                 temp = temp_raw / 1000.0;
                 fclose(fp);
                 printf("CPU temperature from %s: %.1f°C\n", temp_paths[i], temp);
@@ -36,7 +34,6 @@ double get_cpu_temperature() {
         }
     }
     
-    // Пробуем через sensors команду
     FILE *fp = popen("sensors | grep -i 'core\\|cpu' | grep -oP '\\+\\d+\\.\\d+°C' | head -1 | tr -d '+°C'", "r");
     if (fp) {
         if (fscanf(fp, "%lf", &temp) == 1) {
@@ -48,18 +45,15 @@ double get_cpu_temperature() {
     }
     
     printf("Could not get CPU temperature, using default\n");
-    return 45.0; // Значение по умолчанию
+    return 45.0;
 }
 
-// Функция для получения частоты CPU
 unsigned long get_cpu_frequency() {
     unsigned long freq = 0;
     
-    // Пробуем получить текущую частоту
     FILE *fp = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "r");
     if (fp) {
         if (fscanf(fp, "%lu", &freq) == 1) {
-            // Частота в kHz, конвертируем в MHz
             freq = freq / 1000;
             fclose(fp);
             printf("CPU frequency from scaling_cur_freq: %lu MHz\n", freq);
@@ -68,7 +62,6 @@ unsigned long get_cpu_frequency() {
         fclose(fp);
     }
     
-    // Пробуем через /proc/cpuinfo
     fp = fopen("/proc/cpuinfo", "r");
     if (fp) {
         char line[256];
@@ -85,7 +78,6 @@ unsigned long get_cpu_frequency() {
         fclose(fp);
     }
     
-    // Пробуем через lscpu
     fp = popen("lscpu | grep 'CPU MHz' | grep -oP '\\d+\\.\\d+' | head -1", "r");
     if (fp) {
         double mhz;
@@ -99,7 +91,7 @@ unsigned long get_cpu_frequency() {
     }
     
     printf("Could not get CPU frequency, using default\n");
-    return 2400; // Значение по умолчанию
+    return 2400;
 }
 
 int get_cpu_cores_count() {
@@ -169,9 +161,6 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
                     cores[total_cores_found].iowait + cores[total_cores_found].irq +
                     cores[total_cores_found].softirq + cores[total_cores_found].steal;
                 cores[total_cores_found].usage_percent = 0.0;
-                
-                // Для каждого ядра можно получить индивидуальную температуру/частоту
-                // Но пока используем общие значения
                 cores[total_cores_found].temperature = cpu->temperature;
                 cores[total_cores_found].frequency = cpu->frequency;
                 
@@ -183,7 +172,6 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
     fclose(fp);
     *cores_count = total_cores_found;
     
-    // Если не нашли отдельные ядра, создаем на основе общего
     if (*cores_count == 0) {
         *cores_count = get_cpu_cores_count();
         if (*cores_count > MAX_CORES) *cores_count = MAX_CORES;
@@ -214,10 +202,8 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
 int read_memory_info(MemoryInfo *mem) {
     memset(mem, 0, sizeof(MemoryInfo));
     
-    // Используем /proc/meminfo для точных значений
     FILE *fp = fopen("/proc/meminfo", "r");
     if (!fp) {
-        // Тестовые данные
         mem->total = 33238007808; // 31.0 GB
         mem->used = 10654793728;  // 9.9 GB (30%)
         mem->free = 22583214080;  // 21.0 GB
@@ -246,23 +232,18 @@ int read_memory_info(MemoryInfo *mem) {
     }
     fclose(fp);
     
-    // Конвертируем kB в байты
     mem->total = total * 1024;
     mem->free = free * 1024;
     
-    // Cached включает SReclaimable
     mem->cached = (cached + sreclaimable) * 1024;
     
-    // Используем MemAvailable если есть для более точного расчета used
     if (available > 0) {
         mem->used = mem->total - (available * 1024);
     } else {
-        // Иначе рассчитываем used = total - free - buffers - cached
         unsigned long long used_kb = total - free - buffers - cached - sreclaimable;
         mem->used = used_kb * 1024;
     }
     
-    // Убеждаемся что used не отрицательный и не больше total
     if (mem->used > mem->total) {
         mem->used = mem->total;
     }
@@ -270,7 +251,6 @@ int read_memory_info(MemoryInfo *mem) {
         mem->used = 0;
     }
     
-    // Рассчитываем процент
     if (mem->total > 0) {
         mem->percentage = (double)mem->used / mem->total * 100.0;
     } else {
@@ -297,7 +277,6 @@ int read_gpu_info(GPUInfo *gpu) {
     
     printf("🔍 Searching for GPU information...\n");
     
-    // Пробуем nvidia-smi
     FILE *fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,clocks.current.graphics,name --format=csv,noheader,nounits 2>/dev/null", "r");
     
     if (fp) {
@@ -305,19 +284,16 @@ int read_gpu_info(GPUInfo *gpu) {
         if (fgets(line, sizeof(line), fp)) {
             printf("Raw nvidia-smi line: %s\n", line);
             
-            // Очищаем строку от пробелов
             char *line_ptr = line;
             while (*line_ptr == ' ' || *line_ptr == '\t' || *line_ptr == '\n' || *line_ptr == '\r') {
                 line_ptr++;
             }
             
-            // Разделяем строку на части
             char *parts[10];
             int part_count = 0;
             char *token = strtok(line_ptr, ",");
             
             while (token && part_count < 10) {
-                // Убираем пробелы в начале и конце
                 while (*token == ' ' || *token == '\t') token++;
                 char *end = token + strlen(token) - 1;
                 while (end > token && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) {
@@ -330,53 +306,44 @@ int read_gpu_info(GPUInfo *gpu) {
             }
             
             if (part_count >= 7) {
-                // Парсим каждую часть отдельно с проверкой ошибок
                 double usage = 0, temp = 0, power = 0;
                 unsigned long long mem_total = 0, mem_used = 0;
                 unsigned long clock = 0;
                 char name[128] = "";
                 
-                // Использование GPU
                 if (sscanf(parts[0], "%lf", &usage) != 1) {
                     printf("Failed to parse usage: %s\n", parts[0]);
                     usage = 0;
                 }
                 
-                // Общая память
                 if (sscanf(parts[1], "%llu", &mem_total) != 1) {
                     printf("Failed to parse memory total: %s\n", parts[1]);
-                    mem_total = 8192; // 8GB в MB
+                    mem_total = 8192;
                 }
                 
-                // Использованная память
                 if (sscanf(parts[2], "%llu", &mem_used) != 1) {
                     printf("Failed to parse memory used: %s\n", parts[2]);
                     mem_used = 0;
                 }
                 
-                // Температура
                 if (sscanf(parts[3], "%lf", &temp) != 1) {
                     printf("Failed to parse temperature: %s\n", parts[3]);
                     temp = 40;
                 }
                 
-                // Мощность
                 if (sscanf(parts[4], "%lf", &power) != 1) {
                     printf("Failed to parse power: %s\n", parts[4]);
                     power = 30;
                 }
                 
-                // Частота
                 if (sscanf(parts[5], "%lu", &clock) != 1) {
                     printf("Failed to parse clock: %s\n", parts[5]);
                     clock = 1500;
                 }
                 
-                // Имя
                 strncpy(name, parts[6], sizeof(name) - 1);
                 name[sizeof(name) - 1] = '\0';
                 
-                // Конвертируем MB в байты
                 unsigned long long mem_total_bytes = mem_total * 1024 * 1024;
                 unsigned long long mem_used_bytes = mem_used * 1024 * 1024;
                 
@@ -400,7 +367,6 @@ int read_gpu_info(GPUInfo *gpu) {
                            stable_memory_total / (1024.0 * 1024 * 1024));
                 }
                 
-                // Заполняем структуру
                 gpu->usage = usage;
                 gpu->memory_total = stable_memory_total;
                 gpu->memory_used = mem_used_bytes;
@@ -425,7 +391,6 @@ int read_gpu_info(GPUInfo *gpu) {
         printf("nvidia-smi command failed\n");
     }
     
-    // Если не удалось получить данные через nvidia-smi
     if (first_run) {
         printf("⚠️ Could not determine GPU memory via nvidia-smi, using defaults\n");
         stable_memory_total = 8ULL * 1024 * 1024 * 1024; // 8GB в байтах
@@ -433,11 +398,9 @@ int read_gpu_info(GPUInfo *gpu) {
         first_run = 0;
     }
     
-    // Используем стабильные значения
     gpu->memory_total = stable_memory_total;
     strcpy(gpu->name, stable_name);
     
-    // Пробуем получить динамические данные через другой запрос
     fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.used,temperature.gpu,power.draw,clocks.current.graphics --format=csv,noheader,nounits 2>/dev/null", "r");
     if (fp) {
         char line[256];
@@ -485,7 +448,6 @@ int read_gpu_info(GPUInfo *gpu) {
                     printf("Dynamic values parsed successfully\n");
                 } else {
                     printf("Failed to parse dynamic values\n");
-                    // Демо-данные
                     gpu->usage = 5.0 + (rand() % 30);
                     gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
                     gpu->temperature = 40.0 + gpu->usage * 0.5;
@@ -494,7 +456,6 @@ int read_gpu_info(GPUInfo *gpu) {
                 }
             } else {
                 printf("Not enough parts in dynamic data: %d\n", part_count);
-                // Демо-данные
                 gpu->usage = 5.0 + (rand() % 30);
                 gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
                 gpu->temperature = 40.0 + gpu->usage * 0.5;
@@ -503,7 +464,6 @@ int read_gpu_info(GPUInfo *gpu) {
             }
         } else {
             printf("Failed to read from nvidia-smi for dynamic data\n");
-            // Демо-данные
             gpu->usage = 5.0 + (rand() % 30);
             gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
             gpu->temperature = 40.0 + gpu->usage * 0.5;
@@ -513,7 +473,6 @@ int read_gpu_info(GPUInfo *gpu) {
         pclose(fp);
     } else {
         printf("nvidia-smi command for dynamic data failed\n");
-        // Демо-данные
         gpu->usage = 5.0 + (rand() % 30);
         gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
         gpu->temperature = 40.0 + gpu->usage * 0.5;
@@ -521,7 +480,6 @@ int read_gpu_info(GPUInfo *gpu) {
         gpu->clock = 1500 + (rand() % 500);
     }
     
-    // Проверка на корректность
     if (gpu->memory_used > gpu->memory_total || gpu->memory_used == 0) {
         printf("⚠️ memory_used некорректное (%llu), исправляем\n", gpu->memory_used);
         gpu->memory_used = gpu->memory_total * (gpu->usage / 100.0);
@@ -540,7 +498,6 @@ int read_gpu_info(GPUInfo *gpu) {
 int get_processes(ProcessInfo *processes, int *count) {
     DIR *dir = opendir("/proc");
     if (!dir) {
-        // Тестовые процессы с реалистичными значениями
         *count = 10;
         const char *proc_names[] = {"systemd", "bash", "chrome", "firefox", "vim", 
                                    "python3", "node", "docker", "nginx", "sshd"};
@@ -559,7 +516,6 @@ int get_processes(ProcessInfo *processes, int *count) {
     struct dirent *entry;
     *count = 0;
     
-    // Получаем общее время CPU для расчета
     static unsigned long long prev_total = 0;
     static unsigned long long prev_idle = 0;
     unsigned long long total = 0, idle = 0;
@@ -578,13 +534,10 @@ int get_processes(ProcessInfo *processes, int *count) {
         fclose(stat_fp);
     }
     
-    // Время одного тика
     long ticks_per_sec = sysconf(_SC_CLK_TCK);
     if (ticks_per_sec <= 0) ticks_per_sec = 100;
     
-    // Читаем процессы
     while ((entry = readdir(dir)) != NULL && *count < MAX_PROCESSES) {
-        // Проверяем PID
         int is_pid = 1;
         for (int i = 0; entry->d_name[i]; i++) {
             if (!isdigit(entry->d_name[i])) {
@@ -602,7 +555,6 @@ int get_processes(ProcessInfo *processes, int *count) {
         ProcessInfo *p = &processes[*count];
         p->pid = pid;
         
-        // Значения по умолчанию
         strcpy(p->name, "unknown");
         p->state = '?';
         p->rss = 0;
@@ -610,7 +562,6 @@ int get_processes(ProcessInfo *processes, int *count) {
         p->mem_usage = 0.0;
         strcpy(p->command_line, "");
         
-        // Чтение статуса для имени и памяти
         snprintf(path, sizeof(path), "/proc/%d/status", pid);
         FILE *fp = fopen(path, "r");
         if (fp) {
@@ -630,7 +581,6 @@ int get_processes(ProcessInfo *processes, int *count) {
             fclose(fp);
         }
         
-        // Чтение статистики CPU для процесса
         snprintf(path, sizeof(path), "/proc/%d/stat", pid);
         fp = fopen(path, "r");
         if (fp) {
@@ -640,8 +590,6 @@ int get_processes(ProcessInfo *processes, int *count) {
                 long rss_pages;
                 char comm[256];
                 
-                // Парсим /proc/[pid]/stat
-                // Формат: pid (comm) state ppid pgrp session tty_nr tpgid flags minflt cminflt majflt cmajflt utime stime ...
                 sscanf(line, "%*d (%255[^)]) %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %ld",
                        comm, &utime, &stime, &rss_pages);
                 
@@ -649,12 +597,10 @@ int get_processes(ProcessInfo *processes, int *count) {
                     strncpy(p->name, comm, 255);
                 }
                 
-                // Расчет CPU usage (упрощенный)
                 static unsigned long long prev_utime[MAX_PROCESSES] = {0};
                 static unsigned long long prev_stime[MAX_PROCESSES] = {0};
                 static int prev_pid[MAX_PROCESSES] = {0};
                 
-                // Ищем предыдущие значения для этого PID
                 unsigned long long prev_u = 0, prev_s = 0;
                 for (int i = 0; i < MAX_PROCESSES; i++) {
                     if (prev_pid[i] == pid) {
@@ -664,7 +610,6 @@ int get_processes(ProcessInfo *processes, int *count) {
                     }
                 }
                 
-                // Если нашли предыдущие значения, рассчитываем usage
                 if (prev_u > 0 || prev_s > 0) {
                     unsigned long long total_cpu_diff = total - prev_total;
                     if (total_cpu_diff > 0) {
@@ -673,10 +618,9 @@ int get_processes(ProcessInfo *processes, int *count) {
                         if (p->cpu_usage > 100.0) p->cpu_usage = 100.0;
                     }
                 } else {
-                    p->cpu_usage = 0.1; // Начальное значение
+                    p->cpu_usage = 0.1;
                 }
                 
-                // Сохраняем текущие значения для следующего раза
                 for (int i = 0; i < MAX_PROCESSES; i++) {
                     if (prev_pid[i] == pid || prev_pid[i] == 0) {
                         prev_pid[i] = pid;
@@ -686,28 +630,24 @@ int get_processes(ProcessInfo *processes, int *count) {
                     }
                 }
                 
-                // RSS в KB (уже есть из status, но можно взять и отсюда)
                 if (p->rss == 0 && rss_pages > 0) {
-                    p->rss = rss_pages * sysconf(_SC_PAGESIZE) / 1024; // Конвертируем страницы в KB
+                    p->rss = rss_pages * sysconf(_SC_PAGESIZE) / 1024;
                 }
             }
             fclose(fp);
         }
         
-        // Командная строка
         snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
         fp = fopen(path, "rb");
         if (fp) {
             int bytes = fread(p->command_line, 1, 511, fp);
             if (bytes > 0) {
                 p->command_line[bytes] = '\0';
-                // Заменяем нулевые символы на пробелы
                 for (int i = 0; i < bytes; i++) {
                     if (p->command_line[i] == '\0') {
                         p->command_line[i] = ' ';
                     }
                 }
-                // Убираем пробелы в конце
                 int len = strlen(p->command_line);
                 while (len > 0 && (p->command_line[len-1] == ' ' || 
                                    p->command_line[len-1] == '\n' || 
@@ -719,12 +659,10 @@ int get_processes(ProcessInfo *processes, int *count) {
             fclose(fp);
         }
         
-        // Если командная строка пустая, используем имя
         if (strlen(p->command_line) == 0) {
             strcpy(p->command_line, p->name);
         }
         
-        // Рассчитываем процент памяти
         struct sysinfo info;
         if (sysinfo(&info) == 0 && info.totalram > 0) {
             p->mem_usage = 100.0 * (p->rss * 1024) / (info.totalram * info.mem_unit);
@@ -735,11 +673,9 @@ int get_processes(ProcessInfo *processes, int *count) {
     
     closedir(dir);
     
-    // Сохраняем общее время CPU для следующего расчета
     prev_total = total;
     prev_idle = idle;
     
-    // Сортируем по использованию CPU
     for (int i = 0; i < *count - 1; i++) {
         for (int j = i + 1; j < *count; j++) {
             if (processes[i].cpu_usage < processes[j].cpu_usage) {

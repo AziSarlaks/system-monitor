@@ -3,7 +3,7 @@ class SystemMonitor {
         console.log('🚀 System Monitor Initializing...');
         this.serverUrl = 'http://localhost:8080';
         this.isOnline = false;
-        this.connectionTimeout = 10000; // Увеличили до 10 секунд
+        this.connectionTimeout = 10000;
         this.historyData = {
             cpu: [],
             memory: [],
@@ -15,8 +15,8 @@ class SystemMonitor {
         this.historyChart = null;
         this.gpuChart = null;
         this.chartsInitialized = false;
-        this.retryDelay = 5000; // Задержка между повторными попытками
-        this.maxRetries = 3; // Максимальное количество попыток
+        this.retryDelay = 5000;
+        this.maxRetries = 3;
         this.currentRetry = 0;
         this.currentPage = 1;
         this.processesPerPage = 10;
@@ -52,7 +52,6 @@ class SystemMonitor {
         const endIndex = Math.min(startIndex + this.processesPerPage, this.allProcesses.length);
         const pageProcesses = this.allProcesses.slice(startIndex, endIndex);
         
-        // Сортируем по выбранному критерию
         const sortBy = document.getElementById('sortBy')?.value || 'cpu';
         const sorted = [...pageProcesses].sort((a, b) => {
             if (sortBy === 'cpu') return (b.cpu || 0) - (a.cpu || 0);
@@ -60,10 +59,8 @@ class SystemMonitor {
             return (a.name || '').localeCompare(b.name || '');
         });
         
-        // Очищаем таблицу
         tbody.innerHTML = '';
         
-        // Добавляем процессы
         sorted.forEach((proc) => {
             const cpu = proc.cpu || 0;
             const memory = proc.memory || 0;
@@ -87,62 +84,96 @@ class SystemMonitor {
             tbody.appendChild(row);
         });
         
-        // Если нет процессов на странице
         if (sorted.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="loading">No processes found</td></tr>';
         }
         
-        // Обновляем информацию о странице
         const totalPages = Math.ceil(this.allProcesses.length / this.processesPerPage);
         document.getElementById('processCount').textContent = 
             `${this.allProcesses.length} processes (Page ${page}/${totalPages})`;
         
-        // Обновляем состояние кнопок пагинации
         document.querySelector('.btn-prev').disabled = page <= 1;
         document.querySelector('.btn-next').disabled = page >= totalPages;
     }
 
     setupEventListeners() {
-        // ... существующий код ...
+        console.log('Setting up event listeners');
         
-        // Пагинация
-        document.querySelector('.btn-prev')?.addEventListener('click', () => {
-            if (this.currentPage > 1) {
-                this.renderProcessesPage(this.currentPage - 1);
-            }
-        });
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                if (this.isOnline) {
+                    this.loadSystemData();
+                    this.loadHistory();
+                } else {
+                    this.generateDemoData();
+                }
+                
+                refreshBtn.classList.add('spin');
+                setTimeout(() => refreshBtn.classList.remove('spin'), 1000);
+            });
+        }
         
-        document.querySelector('.btn-next')?.addEventListener('click', () => {
-            const totalPages = Math.ceil(this.allProcesses.length / this.processesPerPage);
-            if (this.currentPage < totalPages) {
-                this.renderProcessesPage(this.currentPage + 1);
-            }
-        });
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            themeToggle.addEventListener('click', () => {
+                this.toggleTheme();
+            });
+        }
         
-        // Обновление при изменении сортировки
-        document.getElementById('sortBy')?.addEventListener('change', () => {
-            this.renderProcessesPage(this.currentPage);
-        });
+        const searchInput = document.getElementById('searchProcess');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                this.filterProcesses(e.target.value);
+            });
+        }
         
-        // Поиск процессов
-        document.getElementById('searchProcess')?.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            const filtered = this.allProcesses.filter(proc => 
-                (proc.name && proc.name.toLowerCase().includes(searchTerm)) ||
-                (proc.command && proc.command.toLowerCase().includes(searchTerm)) ||
-                (proc.pid && proc.pid.toString().includes(searchTerm))
-            );
-            
-            // Временно заменяем все процессы отфильтрованными
-            const tempProcesses = this.allProcesses;
-            this.allProcesses = filtered;
-            this.renderProcessesPage(1);
-            this.allProcesses = tempProcesses; // Восстанавливаем для следующего поиска
-        });
+        const sortBy = document.getElementById('sortBy');
+        if (sortBy) {
+            sortBy.addEventListener('change', () => {
+                this.renderProcessesPage(this.currentPage);
+            });
+        }
+        
+        const intervalSelect = document.getElementById('updateInterval');
+        if (intervalSelect) {
+            intervalSelect.addEventListener('change', (e) => {
+                this.updatePollingInterval(parseInt(e.target.value));
+            });
+        }
+        
+        const historyRange = document.getElementById('historyRange');
+        if (historyRange) {
+            historyRange.addEventListener('change', (e) => {
+                this.updateHistoryRange(parseInt(e.target.value));
+            });
+        }
+        
+        const prevBtn = document.querySelector('.btn-prev');
+        if (prevBtn) {
+            prevBtn.addEventListener('click', () => {
+                if (this.currentPage > 1) {
+                    this.currentPage--;
+                    this.renderProcessesPage();
+                }
+            });
+        }
+        
+        const nextBtn = document.querySelector('.btn-next');
+        if (nextBtn) {
+            nextBtn.addEventListener('click', () => {
+                const totalPages = Math.ceil(this.filteredProcesses.length / this.processesPerPage);
+                if (this.currentPage < totalPages) {
+                    this.currentPage++;
+                    this.renderProcessesPage();
+                }
+            });
+        }
+        
+        console.log('✅ Event listeners setup complete');
     }
 
     createLoadingIndicator() {
-        // Удаляем старый индикатор если есть
         const oldLoader = document.getElementById('loadingIndicator');
         if (oldLoader) oldLoader.remove();
         
@@ -168,7 +199,6 @@ class SystemMonitor {
             }
             loader.style.display = show ? 'flex' : 'none';
             
-            // Анимация прогресс-бара
             if (show) {
                 const progressBar = loader.querySelector('.progress-fill');
                 if (progressBar) {
@@ -186,7 +216,7 @@ class SystemMonitor {
             const testUrls = [
                 'http://localhost:8080/api/system',
                 'http://127.0.0.1:8080/api/system',
-                'http://localhost:8080/api/health', // Пробуем health endpoint
+                'http://localhost:8080/api/health',
                 'http://127.0.0.1:8080/api/health'
             ];
             
@@ -201,7 +231,6 @@ class SystemMonitor {
                     if (response.ok) {
                         console.log(`✅ Successfully connected to: ${url}`);
                         
-                        // Определяем основной URL сервера
                         if (url.includes('/api/health')) {
                             this.serverUrl = url.replace('/api/health', '');
                         } else {
@@ -213,13 +242,10 @@ class SystemMonitor {
                         this.updateConnectionStatus('online', 'Online');
                         this.showNotification('Connected to server successfully!', 'success');
                         
-                        // Загружаем системные данные
                         await this.loadSystemData();
                         
-                        // Загружаем историю
                         await this.loadHistory();
                         
-                        // Запускаем периодическое обновление
                         this.startPolling();
                         
                         connected = true;
@@ -241,11 +267,9 @@ class SystemMonitor {
             this.currentRetry++;
             
             if (this.currentRetry < this.maxRetries) {
-                // Пробуем снова через delay
                 console.log(`Retrying in ${this.retryDelay/1000} seconds... (${this.currentRetry}/${this.maxRetries})`);
                 this.updateConnectionStatus('testing', `Retrying... (${this.currentRetry}/${this.maxRetries})`);
                 
-                // Показываем прогресс перед повторной попыткой
                 this.showLoading(true, `Retrying in ${this.retryDelay/1000}s... (${this.currentRetry}/${this.maxRetries})`);
                 
                 setTimeout(() => {
@@ -253,7 +277,6 @@ class SystemMonitor {
                 }, this.retryDelay);
                 
             } else {
-                // Все попытки исчерпаны, переходим в демо-режим
                 console.warn(`⚠️ All ${this.maxRetries} retry attempts failed, switching to demo mode`);
                 
                 this.isOnline = false;
@@ -261,7 +284,6 @@ class SystemMonitor {
                 this.updateConnectionStatus('offline', 'Offline (Demo Mode)');
                 this.showNotification(`Server unavailable after ${this.maxRetries} attempts. Running in demo mode.`, 'warning');
                 
-                // Запускаем демо-режим
                 this.startDemoMode();
             }
             
@@ -280,10 +302,8 @@ class SystemMonitor {
         try {
             const response = await fetch(url, {
                 signal: controller.signal,
-                // Упрощенные заголовки - только Accept
                 headers: {
                     'Accept': 'application/json'
-                    // Убираем Cache-Control и Pragma - сервер их не разрешает
                 },
                 mode: 'cors',
                 credentials: 'omit'
@@ -353,7 +373,6 @@ class SystemMonitor {
         const statusEl = document.getElementById('connection-status');
         if (!statusEl) return;
         
-        // Убираем все классы статуса
         statusEl.className = 'status-indicator';
         
         switch (status) {
@@ -384,21 +403,18 @@ class SystemMonitor {
         console.log('Updating UI with data:', data);
         
         try {
-            // CPU
             let cpuPercent = 0;
             if (data.cpu) {
                 this.updateCPU(data.cpu);
                 cpuPercent = data.cpu.usage || 0;
             }
             
-            // Memory
             let memPercent = 0;
             if (data.memory) {
                 this.updateMemory(data.memory);
                 memPercent = data.memory.percentage || 0;
             }
             
-            // GPU
             let gpuPercent = 0;
             if (data.gpu) {
                 this.updateGPU(data.gpu);
@@ -407,15 +423,12 @@ class SystemMonitor {
                 this.updateGPU(this.generateDemoGPU());
             }
             
-            // Update gauges
             this.updateGauges(cpuPercent, memPercent, gpuPercent);
             
-            // Processes
             if (data.processes) {
                 this.updateProcesses(data.processes);
             }
             
-            // Обновляем время
             this.updateLastUpdate();
             
         } catch (error) {
@@ -424,19 +437,16 @@ class SystemMonitor {
     }
 
     updateCPU(cpu) {
-        // Обновляем общее использование CPU
         const cpuValueEl = document.getElementById('cpuValue');
         if (cpuValueEl && cpu.usage !== undefined) {
             cpuValueEl.textContent = cpu.usage.toFixed(1) + '%';
         }
         
-        // Обновляем количество ядер
         const cpuCoresEl = document.getElementById('cpuCores');
         if (cpuCoresEl && cpu.cores_count !== undefined) {
             cpuCoresEl.textContent = cpu.cores_count;
         }
         
-        // Обновляем температуру
         const cpuTempEl = document.getElementById('cpuTemp');
         if (cpuTempEl) {
             if (cpu.temperature && cpu.temperature > 0) {
@@ -446,7 +456,6 @@ class SystemMonitor {
             }
         }
         
-        // Обновляем частоту
         const cpuFreqEl = document.getElementById('cpuFreq');
         if (cpuFreqEl) {
             if (cpu.frequency && cpu.frequency > 0) {
@@ -456,10 +465,8 @@ class SystemMonitor {
             }
         }
         
-        // Обновляем ядра
         this.updateCores(cpu.cores || []);
         
-        // Для демо-режима
         if (!this.isOnline) {
             this.addToLocalHistory('cpu', cpu.usage || 0);
         }
@@ -471,7 +478,6 @@ class SystemMonitor {
         
         console.log(`Updating ${cores.length} cores`);
         
-        // Очищаем контейнер
         container.innerHTML = '';
         
         if (!cores || cores.length === 0) {
@@ -479,7 +485,6 @@ class SystemMonitor {
             return;
         }
         
-        // Показываем все ядра (без ограничения)
         cores.forEach((core, i) => {
             const usage = core.usage || 0;
             const color = this.getUsageColor(usage);
@@ -498,7 +503,6 @@ class SystemMonitor {
             container.appendChild(coreEl);
         });
         
-        // Добавляем информацию о количестве ядер
         const infoEl = document.createElement('div');
         infoEl.className = 'core-info';
         infoEl.textContent = `Total: ${cores.length} cores`;
@@ -510,7 +514,6 @@ class SystemMonitor {
     updateMemory(mem) {
         console.log('Updating memory with:', mem);
         
-        // Получаем значения в байтах
         const memTotal = mem.total || 0;
         const memUsed = mem.used || 0;
         const memFree = mem.free || 0;
@@ -524,8 +527,7 @@ class SystemMonitor {
             cached: memCached,
             percentage: memPercentage
         });
-        
-        // Форматируем байты в GB
+
         const formatGB = (bytes) => {
             if (!bytes || bytes === 0) return '0.0';
             return (bytes / (1024 * 1024 * 1024)).toFixed(1);
@@ -544,13 +546,11 @@ class SystemMonitor {
             percentage: memPercentage.toFixed(1)
         });
         
-        // Обновляем значение основного индикатора
         const memValueEl = document.getElementById('memoryValue');
         if (memValueEl) {
             memValueEl.textContent = memPercentage.toFixed(1) + '%';
         }
         
-        // Обновляем детали
         const memTotalEl = document.getElementById('memTotal');
         const memUsedEl = document.getElementById('memUsed');
         const memFreeEl = document.getElementById('memFree');
@@ -561,7 +561,6 @@ class SystemMonitor {
         if (memFreeEl) memFreeEl.textContent = memFreeGB + ' GB';
         if (memCachedEl) memCachedEl.textContent = memCachedGB + ' GB';
         
-        // Обновляем прогресс-бар
         if (memTotal > 0) {
             const usedPercent = (memUsed / memTotal) * 100;
             const cachedPercent = (memCached / memTotal) * 100;
@@ -585,7 +584,6 @@ class SystemMonitor {
                 cachedBar.style.left = usedPercent + '%';
             }
             
-            // Обновляем метки
             const barLabels = document.querySelector('.bar-labels');
             if (barLabels) {
                 const freePercent = 100 - usedPercent - cachedPercent;
@@ -597,7 +595,6 @@ class SystemMonitor {
             }
         }
         
-        // Для демо-режима
         if (!this.isOnline) {
             this.addToLocalHistory('memory', memPercentage);
         }
@@ -611,14 +608,12 @@ class SystemMonitor {
             gpuValueEl.textContent = gpu.usage.toFixed(1) + '%';
         }
         
-        // Получаем значения памяти в байтах
         let memTotal = gpu.memory_total || 0;
         let memUsed = gpu.memory_used || 0;
         
-        // Проверяем на явно неверные значения (больше 1TB)
-        if (memTotal > 1099511627776) { // 1TB в байтах
+        if (memTotal > 1099511627776) { 
             console.warn('⚠️ GPU memory_total слишком большой, исправляем:', memTotal);
-            memTotal = 8 * 1024 * 1024 * 1024; // 8GB
+            memTotal = 8 * 1024 * 1024 * 1024; 
         }
         
         if (memUsed > memTotal) {
@@ -626,7 +621,6 @@ class SystemMonitor {
             memUsed = memTotal * (gpu.usage / 100);
         }
         
-        // Конвертируем байты в GB для отображения
         const formatGB = (bytes) => {
             if (!bytes || bytes === 0) return '0.0';
             const gb = bytes / (1024 * 1024 * 1024);
@@ -639,7 +633,6 @@ class SystemMonitor {
         
         console.log('GPU Memory:', memUsedGB, '/', memTotalGB, 'GB', `(${memPercent.toFixed(1)}%)`);
         
-        // Обновляем элементы
         const memUsedEl = document.getElementById('gpuMemUsed');
         const memTotalEl = document.getElementById('gpuMemTotal');
         const memPercentEl = document.getElementById('gpuMemPercent');
@@ -648,41 +641,35 @@ class SystemMonitor {
         if (memTotalEl) memTotalEl.textContent = memTotalGB + ' GB';
         if (memPercentEl) memPercentEl.textContent = `(${memPercent.toFixed(1)}%)`;
         
-        // Температура
         const tempEl = document.getElementById('gpuTemp');
         if (tempEl) {
             tempEl.textContent = gpu.temperature ? 
                 `${gpu.temperature.toFixed(1)}°C` : '-- °C';
         }
         
-        // Мощность
         const powerEl = document.getElementById('gpuPower');
         if (powerEl) {
             powerEl.textContent = gpu.power ? 
                 `${gpu.power.toFixed(1)}W` : '-- W';
         }
         
-        // Частота
         const clockEl = document.getElementById('gpuClock');
         if (clockEl) {
             clockEl.textContent = gpu.clock ? 
                 `${gpu.clock} MHz` : '-- MHz';
         }
         
-        // Имя GPU
         const gpuNameElement = document.querySelector('.gpu-card .card-header h2');
         if (gpuNameElement && gpu.name) {
             gpuNameElement.innerHTML = `<i class="fas fa-gamepad"></i> ${gpu.name}`;
         }
         
-        // Прогресс-бар памяти
         const memBar = document.getElementById('gpuMemBar');
         if (memBar && memTotal > 0) {
             memBar.style.width = Math.min(100, Math.max(0, memPercent)) + '%';
             memBar.style.background = this.getUsageColor(memPercent);
         }
         
-        // Для демо-режима
         if (!this.isOnline) {
             this.addToLocalHistory('gpu', gpu.usage || 0);
             this.addToLocalHistory('gpu_memory', memPercent);
@@ -760,18 +747,14 @@ class SystemMonitor {
             clearInterval(this.demoInterval);
         }
         
-        // Инициализируем демо-историю
         this.initializeDemoHistory();
         
-        // Генерируем демо-данные
         this.generateDemoData();
         
-        // Обновляем каждые 2 секунды
         this.demoInterval = setInterval(() => {
             this.generateDemoData();
         }, 2000);
         
-        // Показываем уведомление
         this.showDemoNotice();
     }
 
@@ -796,8 +779,8 @@ class SystemMonitor {
 
     generateDemoData() {
         const cpuPercent = 20 + Math.random() * 60;
-        const cpuTemp = 40 + cpuPercent * 0.5; // Температура зависит от нагрузки
-        const cpuFreq = 2000 + cpuPercent * 20; // Частота зависит от нагрузки
+        const cpuTemp = 40 + cpuPercent * 0.5;
+        const cpuFreq = 2000 + cpuPercent * 20;
         
         const memPercent = 30 + Math.random() * 50;
         const gpuPercent = 15 + Math.random() * 70;
@@ -1091,7 +1074,6 @@ class SystemMonitor {
     initializeCharts() {
         console.log('📊 Initializing charts...');
         
-        // Инициализация основного графика истории
         const historyCtx = document.getElementById('historyChart')?.getContext('2d');
         if (historyCtx) {
             this.historyChart = new Chart(historyCtx, {
@@ -1178,7 +1160,6 @@ class SystemMonitor {
             console.warn('⚠️ History chart canvas not found');
         }
 
-        // Инициализация графика GPU истории
         const gpuCtx = document.getElementById('gpuChart')?.getContext('2d');
         if (gpuCtx) {
             this.gpuChart = new Chart(gpuCtx, {
@@ -1299,7 +1280,6 @@ class SystemMonitor {
     updateCharts() {
         if (!this.historyChart || !this.gpuChart) return;
         
-        // Обновляем основной график истории
         if (this.historyChart && this.historyData.timestamps.length > 0) {
             const timestamps = this.historyData.timestamps.map(ts => {
                 const date = new Date(ts * 1000);
@@ -1317,7 +1297,6 @@ class SystemMonitor {
             console.log(`📈 Updated history chart with ${this.historyData.timestamps.length} points`);
         }
         
-        // Обновляем график GPU истории
         if (this.gpuChart && this.historyData.timestamps.length > 0) {
             const timestamps = this.historyData.timestamps.map(ts => {
                 const date = new Date(ts * 1000);
@@ -1338,7 +1317,6 @@ class SystemMonitor {
     }
 
     initializeGauges() {
-        // CPU Gauge
         const cpuCtx = document.getElementById('cpuGauge');
         if (cpuCtx) {
             this.cpuGauge = new Chart(cpuCtx.getContext('2d'), {
@@ -1363,7 +1341,6 @@ class SystemMonitor {
             });
         }
         
-        // Memory Gauge
         const memCtx = document.getElementById('memoryGauge');
         if (memCtx) {
             this.memoryGauge = new Chart(memCtx.getContext('2d'), {
@@ -1388,7 +1365,6 @@ class SystemMonitor {
             });
         }
         
-        // GPU Gauge
         const gpuCtx = document.getElementById('gpuGauge');
         if (gpuCtx) {
             this.gpuGauge = new Chart(gpuCtx.getContext('2d'), {
@@ -1415,7 +1391,6 @@ class SystemMonitor {
     }
 
     updateGauges(cpuPercent, memPercent, gpuPercent) {
-        // CPU Gauge
         if (this.cpuGauge) {
             this.cpuGauge.data.datasets[0].data = [cpuPercent, 100 - cpuPercent];
             this.cpuGauge.update();
@@ -1423,7 +1398,6 @@ class SystemMonitor {
                 `${cpuPercent.toFixed(1)}%<small>CPU</small>`;
         }
         
-        // Memory Gauge
         if (this.memoryGauge) {
             this.memoryGauge.data.datasets[0].data = [memPercent, 100 - memPercent];
             this.memoryGauge.update();
@@ -1431,7 +1405,6 @@ class SystemMonitor {
                 `${memPercent.toFixed(1)}%<small>RAM</small>`;
         }
         
-        // GPU Gauge
         if (this.gpuGauge) {
             this.gpuGauge.data.datasets[0].data = [gpuPercent, 100 - gpuPercent];
             this.gpuGauge.update();
@@ -1441,7 +1414,6 @@ class SystemMonitor {
     }
 }
 
-// Запускаем при загрузке DOM
 document.addEventListener('DOMContentLoaded', () => {
     console.log('📄 DOM loaded, starting SystemMonitor...');
     
