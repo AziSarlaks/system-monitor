@@ -13,39 +13,87 @@
 double get_cpu_temperature() {
     double temp = 0.0;
     
-    const char *temp_paths[] = {
+    // 1. Пробуем чтение из thermal zones
+    const char *thermal_paths[] = {
         "/sys/class/thermal/thermal_zone0/temp",
-        "/sys/class/hwmon/hwmon0/temp1_input",
-        "/sys/class/hwmon/hwmon1/temp1_input",
-        "/sys/devices/platform/coretemp.0/hwmon/hwmon*/temp1_input"
+        "/sys/class/thermal/thermal_zone1/temp",
+        "/sys/class/thermal/thermal_zone2/temp",
+        "/sys/class/thermal/thermal_zone3/temp"
     };
     
     for (int i = 0; i < 4; i++) {
-        FILE *fp = fopen(temp_paths[i], "r");
+        FILE *fp = fopen(thermal_paths[i], "r");
         if (fp) {
             int temp_raw;
             if (fscanf(fp, "%d", &temp_raw) == 1) {
+                // Обычно температура в миллиградусах Цельсия (м°C)
                 temp = temp_raw / 1000.0;
                 fclose(fp);
-                printf("CPU temperature from %s: %.1f°C\n", temp_paths[i], temp);
-                return temp;
+                
+                // Проверка на реалистичность (10°C - 110°C)
+                if (temp >= 10.0 && temp <= 110.0) {
+                    printf("✅ CPU temperature from %s: %.1f°C\n", 
+                           thermal_paths[i], temp);
+                    return temp;
+                }
             }
             fclose(fp);
         }
     }
     
+    // 2. Пробуем чтение из hwmon
+    for (int i = 0; i < 10; i++) {
+        char path[256];
+        snprintf(path, sizeof(path), 
+                 "/sys/class/hwmon/hwmon%d/temp1_input", i);
+        
+        FILE *fp = fopen(path, "r");
+        if (fp) {
+            int temp_raw;
+            if (fscanf(fp, "%d", &temp_raw) == 1) {
+                temp = temp_raw / 1000.0;
+                fclose(fp);
+                
+                if (temp >= 10.0 && temp <= 110.0) {
+                    printf("✅ CPU temperature from hwmon%d: %.1f°C\n", 
+                           i, temp);
+                    return temp;
+                }
+            }
+            fclose(fp);
+        }
+    }
+    
+    // 3. Пробуем через команду sensors (требует установки lm-sensors)
     FILE *fp = popen("sensors | grep -i 'core\\|cpu' | grep -oP '\\+\\d+\\.\\d+°C' | head -1 | tr -d '+°C'", "r");
     if (fp) {
         if (fscanf(fp, "%lf", &temp) == 1) {
             pclose(fp);
-            printf("CPU temperature from sensors: %.1f°C\n", temp);
-            return temp;
+            if (temp >= 10.0 && temp <= 110.0) {
+                printf("✅ CPU temperature from sensors: %.1f°C\n", temp);
+                return temp;
+            }
         }
         pclose(fp);
     }
     
-    printf("Could not get CPU temperature, using default\n");
-    return 45.0;
+    printf("⚠️ Could not read CPU temperature, using estimated value\n");
+
+    CPUStats cpu;
+    CPUStats cores[MAX_CORES];
+    int cores_count;
+    
+    if (read_cpu_stats(&cpu, cores, &cores_count) == 0) {
+        temp = 30.0 + cpu.usage_percent * 0.5;
+        if (temp > 90.0) temp = 90.0;
+    } else {
+        temp = 45.0; // Значение по умолчанию
+    }
+    
+    printf("ℹ️ Using estimated temperature: %.1f°C (based on %.1f%% CPU load)\n", 
+           temp, cpu.usage_percent);
+    
+    return temp;
 }
 
 unsigned long get_cpu_frequency() {
@@ -126,6 +174,9 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
         return 0;
     }
     
+    double temp = get_cpu_temperature();
+    cpu->temperature = temp;
+
     char line[256];
     *cores_count = 0;
     int total_cores_found = 0;

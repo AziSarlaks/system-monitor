@@ -10,10 +10,7 @@
 
 ```bash
 # Компиляция тестов
-make -f Makefile.test
-
-# Запуск тестов
-./test_runner
+make -f Makefile.test run
 
 # Запуск с проверкой памяти
 make -f Makefile.test valgrind
