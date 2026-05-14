@@ -234,13 +234,13 @@ make package-deb
 The package is created at:
 
 ```text
-dist/system-monitor_3.0.0_amd64.deb
+dist/system-monitor_3.0.1_amd64.deb
 ```
 
 Install it locally:
 
 ```bash
-sudo apt install ./dist/system-monitor_3.0.0_amd64.deb
+sudo apt install ./dist/system-monitor_3.0.1_amd64.deb
 ```
 
 The package installs:

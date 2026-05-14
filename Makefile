@@ -1,6 +1,6 @@
 APP_NAME = system-monitor
 APP_BINARY = app/build/system-monitor-app
-VERSION = 3.0.0
+VERSION = 3.0.1
 DIST_DIR = dist
 DEB_ROOT = $(DIST_DIR)/$(APP_NAME)_$(VERSION)
 DEB_FILE = $(DIST_DIR)/$(APP_NAME)_$(VERSION)_amd64.deb
