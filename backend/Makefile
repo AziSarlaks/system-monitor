@@ -1,31 +1,27 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -O2 -I./src
-LDFLAGS = -lpthread -lm
-TARGET = system_monitor
+CC ?= gcc
+AR ?= ar
+CFLAGS = -Wall -Wextra -O2 -g -std=c11 -D_GNU_SOURCE -I./src
+
+TARGET = build/libsystem_monitor_backend.a
 SRCDIR = src
 BUILDDIR = build
 
-SOURCES = $(wildcard $(SRCDIR)/*.c)
+SOURCES = \
+	$(SRCDIR)/proc_parser.c \
+	$(SRCDIR)/history.c
+
 OBJECTS = $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SOURCES))
 
-all: $(BUILDDIR) $(TARGET)
-
-$(BUILDDIR):
-	mkdir -p $(BUILDDIR)
+all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
-	$(CC) $^ -o $@ $(LDFLAGS)
+	$(AR) rcs $@ $^
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(BUILDDIR) $(TARGET)
+	rm -rf $(BUILDDIR)
 
-run: $(TARGET)
-	./$(TARGET)
-
-debug: CFLAGS += -g -DDEBUG
-debug: clean $(TARGET)
-
-.PHONY: all clean run debug
+.PHONY: all clean

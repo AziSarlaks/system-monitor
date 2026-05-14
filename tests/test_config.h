@@ -2,6 +2,7 @@
 #define TEST_CONFIG_H
 
 #include <setjmp.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>

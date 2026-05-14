@@ -1,54 +1,59 @@
-# 🖥️ System Monitor Server
+# System Monitor
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Platform: Linux](https://img.shields.io/badge/platform-Linux-blue)](https://www.linux.org/)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS-blue)](https://www.apple.com/macos/)
-[![Language: C](https://img.shields.io/badge/language-C-orange)](https://en.wikipedia.org/wiki/C_(programming_language))
-[![Language: JavaScript](https://img.shields.io/badge/language-JavaScript-yellow)](https://www.javascript.com/)
+Native Ubuntu desktop system monitor written in C.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/AziSarlaks/system-monitor/master/view.png" alt="System Monitor Dashboard" width="800"/>
-</p>
+The GTK desktop app reads system data directly through the C backend modules.
 
-**System Monitor Server** — это мощный инструмент для мониторинга системы в реальном времени с красивым веб-интерфейсом. Сервер на C собирает данные о системе и отправляет их в браузер через REST API.
+## Project Layout
 
-## ✨ Возможности
+- `app/` - GTK3 desktop application.
+- `backend/src/proc_parser.*` - CPU, memory, GPU and process data collection.
+- `backend/src/history.*` - fixed-size history ring buffer for charts.
+- `tests/` - unit and integration-style tests for backend and app logic.
 
-- 📊 **Мониторинг CPU** — общая нагрузка, нагрузка по ядрам, температура, частота
-- 🧠 **Мониторинг RAM** — использование памяти, кеш, свободное место
-- 🎮 **Мониторинг GPU** — нагрузка, видеопамять, температура, частота (NVIDIA)
-- 📈 **Графики истории** — отслеживание изменений за последние 60 секунд
-- 🔄 **Автообновление** — данные обновляются каждые 2 секунды
-- 📱 **Адаптивный дизайн** — отлично выглядит на всех устройствах
-- 🌓 **Темная/светлая тема** — переключение одним кликом
+## Requirements
 
-## 📦 Релизы
-
-### Последний релиз: [v2.0.0](https://github.com/AziSarlaks/system-monitor/releases/tag/v2.0.0)
-
-**Дата:** 2026-02-16
-
-**Основные изменения:**
-- Полностью переработанный веб-интерфейс
-- Круговые диаграммы для CPU, RAM и GPU
-- Поддержка NVIDIA GPU
-- Темная/светлая тема
-- Улучшенная производительность
-
-[Скачать v2.0.0](https://github.com/AziSarlaks/system-monitor/releases/download/v2.0.0/system-monitor-2.0.0-source.zip)
-
-### Все релизы
-- [v2.0.0](https://github.com/AziSarlaks/system-monitor/releases/tag/v2.0.0) - Текущая версия
-
-## 🚀 Быстрый старт
-
-### Вариант 1: Установка одним скриптом (рекомендуется)
-
-**Linux / macOS:**
 ```bash
-# Скачайте все файлы и запустите установщик
-chmod +x install.sh
-./install.sh
+sudo apt install build-essential libgtk-3-dev
+```
 
-# Запустите сервер
-./run.sh
+Optional NVIDIA GPU metrics require `nvidia-smi`.
+
+## Build
+
+```bash
+make -C app check-deps
+make -C backend
+make -C app
+```
+
+The app binary is created at:
+
+```bash
+app/build/system-monitor-app
+```
+
+## Run
+
+```bash
+cd app
+make run
+```
+
+## Tests
+
+```bash
+make -f Makefile.test run
+```
+
+Valgrind:
+
+```bash
+make -f Makefile.test valgrind
+```
+
+Clean test artifacts:
+
+```bash
+make -f Makefile.test clean
+```

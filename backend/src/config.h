@@ -4,13 +4,15 @@
 #define VERSION "2.0.0"
 #define VERSION_DATE "2026-02-16"
 
-#define PORT 8080
-#define BUFFER_SIZE 4096
 #define MAX_PROCESSES 512
 #define UPDATE_INTERVAL_MS 2000
-#define MAX_CONNECTIONS 10
 #define MAX_CORES 32
 #define HISTORY_SIZE 60
+
+typedef enum {
+    GPU_SOURCE_INTEGRATED = 0,
+    GPU_SOURCE_NVIDIA = 1
+} GPUSource;
 
 typedef struct {
     unsigned long long total;

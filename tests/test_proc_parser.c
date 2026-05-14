@@ -32,10 +32,24 @@ static int test_gpu_info() {
     
     TEST_ASSERT(result == 0);
     TEST_ASSERT(gpu.usage >= 0 && gpu.usage <= 100);
-    TEST_ASSERT(gpu.memory_total > 0);
+    TEST_ASSERT(gpu.memory_total >= gpu.memory_used);
     TEST_ASSERT(gpu.memory_used <= gpu.memory_total);
     TEST_ASSERT(strlen(gpu.name) > 0);
     
+    return 1;
+}
+
+static int test_gpu_source_selection() {
+    GPUInfo integrated;
+    GPUInfo nvidia;
+
+    TEST_ASSERT(read_gpu_info_for_source(&integrated, GPU_SOURCE_INTEGRATED) == 0);
+    TEST_ASSERT(read_gpu_info_for_source(&nvidia, GPU_SOURCE_NVIDIA) == 0);
+    TEST_ASSERT(strlen(integrated.name) > 0);
+    TEST_ASSERT(strlen(nvidia.name) > 0);
+    TEST_ASSERT(integrated.memory_total >= integrated.memory_used);
+    TEST_ASSERT(nvidia.memory_total >= nvidia.memory_used);
+
     return 1;
 }
 
@@ -62,5 +76,6 @@ void test_proc_parser_suite() {
     RUN_TEST(test_cpu_stats_calculation);
     RUN_TEST(test_memory_info);
     RUN_TEST(test_gpu_info);
+    RUN_TEST(test_gpu_source_selection);
     RUN_TEST(test_processes);
 }

@@ -39,36 +39,20 @@ static int test_history_wrap() {
     return 1;
 }
 
-static int test_history_json() {
+static int test_history_keeps_latest_values_after_wrap() {
     HistoryData history;
     init_history(&history);
-    char buffer[4096];
-    
-    for (int i = 0; i < 5; i++) {
-        add_to_history(&history, i * 10.0, i * 5.0, i * 15.0, i * 8.0, i * 3.0);
-    }
-    
-    get_history_json(buffer, sizeof(buffer), &history);
-    
-    TEST_ASSERT(strstr(buffer, "cpu") != NULL);
-    TEST_ASSERT(strstr(buffer, "memory") != NULL);
-    TEST_ASSERT(strstr(buffer, "gpu") != NULL);
-    
-    return 1;
-}
 
-static int test_history_json_small_buffer() {
-    HistoryData history;
-    init_history(&history);
-    char buffer[16];
-
-    for (int i = 0; i < HISTORY_SIZE; i++) {
-        add_to_history(&history, i, i, i, i, i);
+    for (int i = 0; i < HISTORY_SIZE + 3; i++) {
+        add_to_history(&history, i, i + 1, i + 2, i + 3, i + 4);
     }
 
-    get_history_json(buffer, sizeof(buffer), &history);
+    int oldest = history.index;
+    int newest = (history.index - 1 + HISTORY_SIZE) % HISTORY_SIZE;
 
-    TEST_ASSERT(buffer[sizeof(buffer) - 1] == '\0');
+    TEST_ASSERT_DOUBLE_EQUAL(3.0, history.cpu_usage[oldest], 0.01);
+    TEST_ASSERT_DOUBLE_EQUAL((double)(HISTORY_SIZE + 2), history.cpu_usage[newest], 0.01);
+    TEST_ASSERT_DOUBLE_EQUAL((double)(HISTORY_SIZE + 6), history.gpu_temperature[newest], 0.01);
 
     return 1;
 }
@@ -78,6 +62,5 @@ void test_history_suite() {
     RUN_TEST(test_history_init);
     RUN_TEST(test_history_add);
     RUN_TEST(test_history_wrap);
-    RUN_TEST(test_history_json);
-    RUN_TEST(test_history_json_small_buffer);
+    RUN_TEST(test_history_keeps_latest_values_after_wrap);
 }

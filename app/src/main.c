@@ -8,6 +8,7 @@
 #include "config.h"
 #include "history.h"
 #include "proc_parser.h"
+#include "app_metrics.h"
 
 #define APP_TITLE "System Monitor"
 #define PROCESS_PREVIEW_ROWS 10
@@ -18,6 +19,7 @@ typedef struct {
     GtkWidget *value_label;
     GtkWidget *detail_label;
     double value;
+    gboolean dark_theme;
     GdkRGBA color;
 } MetricCard;
 
@@ -29,6 +31,10 @@ typedef struct {
     GtkWidget *process_count_label;
     GtkWidget *process_window;
     GtkWidget *process_window_count_label;
+    GtkWidget *gpu_integrated_button;
+    GtkWidget *gpu_nvidia_button;
+    GtkWidget *theme_light_button;
+    GtkWidget *theme_dark_button;
     GtkListStore *process_store;
     GtkListStore *process_window_store;
 
@@ -45,7 +51,9 @@ typedef struct {
 
     MemoryInfo memory;
     GPUInfo gpu;
+    GPUSource gpu_source;
     HistoryData history;
+    gboolean dark_theme;
 
     guint refresh_timer_id;
 } AppState;
@@ -60,43 +68,14 @@ enum {
     N_COLUMNS
 };
 
-static double clamp_double(double value, double min, double max) {
-    if (value < min) return min;
-    if (value > max) return max;
-    return value;
-}
+static GtkCssProvider *theme_provider = NULL;
 
-static void calculate_cpu_usage(CPUStats *prev, CPUStats *curr) {
-    if (!prev || !curr) return;
-
-    double total_diff = curr->total - prev->total;
-    double idle_diff = curr->idle - prev->idle;
-
-    if (total_diff > 0.0) {
-        curr->usage_percent = 100.0 * (1.0 - (idle_diff / total_diff));
-        curr->usage_percent = clamp_double(curr->usage_percent, 0.0, 100.0);
-    } else {
-        curr->usage_percent = 0.0;
-    }
-}
-
-static void format_bytes(char *buffer, size_t size, unsigned long long bytes) {
-    const double gib = 1024.0 * 1024.0 * 1024.0;
-    const double mib = 1024.0 * 1024.0;
-
-    if (bytes >= (unsigned long long)gib) {
-        snprintf(buffer, size, "%.1f GB", bytes / gib);
-    } else if (bytes >= (unsigned long long)mib) {
-        snprintf(buffer, size, "%.1f MB", bytes / mib);
-    } else {
-        snprintf(buffer, size, "%llu KB", bytes / 1024ULL);
-    }
-}
+static gboolean refresh_metrics(gpointer user_data);
 
 static void metric_card_set(MetricCard *card, double value, const char *details) {
     char value_text[32];
 
-    card->value = clamp_double(value, 0.0, 100.0);
+    card->value = app_clamp_percent(value);
     snprintf(value_text, sizeof(value_text), "%.0f%%", card->value);
 
     gtk_label_set_text(GTK_LABEL(card->value_label), value_text);
@@ -115,6 +94,7 @@ static gboolean draw_metric_card(GtkWidget *widget, cairo_t *cr, gpointer user_d
     double center_y;
     double start_angle;
     double end_angle;
+    double text_color = card->dark_theme ? 0.92 : 0.08;
 
     gtk_widget_get_allocation(widget, &allocation);
     width = allocation.width;
@@ -129,7 +109,11 @@ static gboolean draw_metric_card(GtkWidget *widget, cairo_t *cr, gpointer user_d
     cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
     cairo_set_line_width(cr, line_width);
 
-    cairo_set_source_rgba(cr, 0.16, 0.18, 0.22, 0.22);
+    if (card->dark_theme) {
+        cairo_set_source_rgba(cr, 0.84, 0.87, 0.92, 0.22);
+    } else {
+        cairo_set_source_rgba(cr, 0.16, 0.18, 0.22, 0.22);
+    }
     cairo_arc(cr, center_x, center_y, radius, 0.0, 2.0 * G_PI);
     cairo_stroke(cr);
 
@@ -143,7 +127,7 @@ static gboolean draw_metric_card(GtkWidget *widget, cairo_t *cr, gpointer user_d
     cairo_text_extents_t extents;
     snprintf(text, sizeof(text), "%.0f%%", card->value);
     cairo_text_extents(cr, text, &extents);
-    cairo_set_source_rgba(cr, 0.08, 0.09, 0.11, 0.92);
+    cairo_set_source_rgba(cr, text_color, text_color, text_color, 0.96);
     cairo_move_to(cr, center_x - extents.width / 2.0 - extents.x_bearing,
                   center_y - extents.height / 2.0 - extents.y_bearing);
     cairo_show_text(cr, text);
@@ -162,11 +146,19 @@ static gboolean draw_history(GtkWidget *widget, cairo_t *cr, gpointer user_data)
     width = allocation.width;
     height = allocation.height;
 
-    cairo_set_source_rgb(cr, 0.98, 0.98, 0.97);
+    if (app->dark_theme) {
+        cairo_set_source_rgb(cr, 0.08, 0.10, 0.13);
+    } else {
+        cairo_set_source_rgb(cr, 0.98, 0.98, 0.97);
+    }
     cairo_paint(cr);
 
     cairo_set_line_width(cr, 1.0);
-    cairo_set_source_rgba(cr, 0.12, 0.13, 0.16, 0.12);
+    if (app->dark_theme) {
+        cairo_set_source_rgba(cr, 0.92, 0.94, 0.97, 0.14);
+    } else {
+        cairo_set_source_rgba(cr, 0.12, 0.13, 0.16, 0.12);
+    }
     for (int i = 1; i < 5; i++) {
         double y = (height - 24) * i / 5.0 + 12.0;
         cairo_move_to(cr, 16.0, y);
@@ -176,7 +168,11 @@ static gboolean draw_history(GtkWidget *widget, cairo_t *cr, gpointer user_data)
 
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 11.0);
-    cairo_set_source_rgba(cr, 0.24, 0.27, 0.33, 0.72);
+    if (app->dark_theme) {
+        cairo_set_source_rgba(cr, 0.84, 0.88, 0.94, 0.72);
+    } else {
+        cairo_set_source_rgba(cr, 0.24, 0.27, 0.33, 0.72);
+    }
     cairo_move_to(cr, 18.0, 18.0);
     cairo_show_text(cr, "100%");
     cairo_move_to(cr, 18.0, height - 20.0);
@@ -213,7 +209,7 @@ static gboolean draw_history(GtkWidget *widget, cairo_t *cr, gpointer user_data)
         for (int i = 0; i < count; i++) {
             int idx = (app->history.index - count + i + HISTORY_SIZE) % HISTORY_SIZE;
             double x = count == 1 ? left : left + chart_width * i / (count - 1);
-            double value = clamp_double(series[s][idx], 0.0, 100.0);
+            double value = app_clamp_percent(series[s][idx]);
             double y = bottom - chart_height * (value / 100.0);
 
             if (count == 1) {
@@ -241,6 +237,20 @@ static GtkWidget *create_label(const char *text, const char *class_name) {
         gtk_style_context_add_class(context, class_name);
     }
     return label;
+}
+
+static const char *gpu_source_label(GPUSource source) {
+    return source == GPU_SOURCE_INTEGRATED ? "Integrated" : "NVIDIA";
+}
+
+static void set_widget_class(GtkWidget *widget, const char *class_name, gboolean enabled) {
+    GtkStyleContext *context = gtk_widget_get_style_context(widget);
+
+    if (enabled) {
+        gtk_style_context_add_class(context, class_name);
+    } else {
+        gtk_style_context_remove_class(context, class_name);
+    }
 }
 
 static MetricCard create_metric_card(const char *title,
@@ -335,26 +345,40 @@ static void refresh_cores(AppState *app) {
     g_list_free(children);
 
     for (int i = 0; i < app->cores_count && i < MAX_CORES; i++) {
-        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-        GtkWidget *label;
+        GtkWidget *tile = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        GtkWidget *name_label;
+        GtkWidget *percent_label;
         GtkWidget *bar;
-        char text[32];
+        GtkStyleContext *context;
+        char name_text[32];
+        char percent_text[32];
+        char tooltip[96];
+        double usage = app_clamp_percent(app->cores_curr[i].usage_percent);
 
-        snprintf(text, sizeof(text), "Core %02d", i);
-        label = create_label(text, "core-label");
-        gtk_widget_set_size_request(label, 72, -1);
+        context = gtk_widget_get_style_context(tile);
+        gtk_style_context_add_class(context, "core-tile");
+        gtk_widget_set_size_request(tile, 150, 72);
+
+        snprintf(name_text, sizeof(name_text), "Core %d", i);
+        snprintf(percent_text, sizeof(percent_text), "%.0f%%", usage);
+        snprintf(tooltip, sizeof(tooltip), "Linux CPU core %d (/proc/stat cpu%d)", i, i);
+
+        name_label = create_label(name_text, "core-label");
+        percent_label = create_label(percent_text, "core-percent");
+        gtk_label_set_xalign(GTK_LABEL(percent_label), 1.0);
+        gtk_widget_set_hexpand(name_label, TRUE);
 
         bar = gtk_progress_bar_new();
-        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(bar),
-                                      clamp_double(app->cores_curr[i].usage_percent, 0.0, 100.0) / 100.0);
-        snprintf(text, sizeof(text), "%.0f%%", app->cores_curr[i].usage_percent);
-        gtk_progress_bar_set_text(GTK_PROGRESS_BAR(bar), text);
-        gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(bar), TRUE);
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(bar), usage / 100.0);
         gtk_widget_set_hexpand(bar, TRUE);
+        gtk_widget_set_tooltip_text(tile, tooltip);
 
-        gtk_box_pack_start(GTK_BOX(row), label, FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(row), bar, TRUE, TRUE, 0);
-        gtk_box_pack_start(GTK_BOX(app->cores_box), row, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(header), name_label, TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(header), percent_label, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(tile), header, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(tile), bar, FALSE, FALSE, 0);
+        gtk_flow_box_insert(GTK_FLOW_BOX(app->cores_box), tile, -1);
     }
 
     gtk_widget_show_all(app->cores_box);
@@ -368,17 +392,13 @@ static void append_process_rows(GtkListStore *store,
     char cpu_text[32];
     char memory_text[32];
     char state_text[8];
-    int rows = process_count;
-
-    if (max_rows > 0 && rows > max_rows) {
-        rows = max_rows;
-    }
+    int rows = app_visible_process_rows(process_count, max_rows);
 
     gtk_list_store_clear(store);
 
     for (int i = 0; i < rows; i++) {
         snprintf(cpu_text, sizeof(cpu_text), "%.1f%%", processes[i].cpu_usage);
-        format_bytes(memory_text, sizeof(memory_text), (unsigned long long)processes[i].rss * 1024ULL);
+        app_format_bytes(memory_text, sizeof(memory_text), (unsigned long long)processes[i].rss * 1024ULL);
         snprintf(state_text, sizeof(state_text), "%c", processes[i].state);
 
         gtk_list_store_append(store, &iter);
@@ -405,12 +425,123 @@ static void refresh_processes(AppState *app) {
     append_process_rows(app->process_window_store, processes, process_count, 0);
 
     char count_text[96];
-    int preview_rows = process_count < PROCESS_PREVIEW_ROWS ? process_count : PROCESS_PREVIEW_ROWS;
+    int preview_rows = app_visible_process_rows(process_count, PROCESS_PREVIEW_ROWS);
     snprintf(count_text, sizeof(count_text), "%d processes, showing top %d", process_count, preview_rows);
     gtk_label_set_text(GTK_LABEL(app->process_count_label), count_text);
 
     snprintf(count_text, sizeof(count_text), "%d processes", process_count);
     gtk_label_set_text(GTK_LABEL(app->process_window_count_label), count_text);
+}
+
+static void update_gpu_source_buttons(AppState *app) {
+    set_widget_class(app->gpu_integrated_button, "gpu-option-active",
+                     app->gpu_source == GPU_SOURCE_INTEGRATED);
+    set_widget_class(app->gpu_nvidia_button, "gpu-option-active",
+                     app->gpu_source == GPU_SOURCE_NVIDIA);
+}
+
+static void update_theme_buttons(AppState *app) {
+    set_widget_class(app->theme_light_button, "theme-option-active", !app->dark_theme);
+    set_widget_class(app->theme_dark_button, "theme-option-active", app->dark_theme);
+}
+
+static void apply_theme_css(gboolean dark_theme) {
+    const char *light_css =
+        "window { background: #f3f4f6; }"
+        ".page { background: #f3f4f6; padding: 18px; }"
+        ".title { font-size: 26px; font-weight: 700; color: #151820; }"
+        ".status { color: #256b4f; font-weight: 600; }"
+        ".card { background: #ffffff; border: 1px solid #d8dde6; border-radius: 8px; padding: 14px; }"
+        ".card-title { font-size: 17px; font-weight: 700; color: #1b1f2a; }"
+        ".section-title { font-size: 16px; font-weight: 700; color: #1b1f2a; }"
+        ".metric-value { font-size: 20px; font-weight: 700; color: #1b1f2a; }"
+        ".muted { color: #586174; font-size: 13px; }"
+        ".core-tile { background: #f8fafc; border: 1px solid #d8dde6; border-radius: 6px; padding: 8px; }"
+        ".core-label { color: #334155; font-size: 12px; font-weight: 700; }"
+        ".core-percent { color: #1b1f2a; font-size: 12px; font-weight: 700; }"
+        ".gpu-selector, .theme-selector { margin-top: 4px; }"
+        ".gpu-option, .theme-option, .command-button { background: #f8fafc; color: #1b1f2a; border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 10px; }"
+        ".gpu-option label, .theme-option label, .command-button label { color: #1b1f2a; }"
+        ".gpu-option:hover, .theme-option:hover, .command-button:hover { background: #eef2f7; }"
+        ".gpu-option-active, .theme-option-active { background: #2f78df; color: #ffffff; border-color: #2f78df; }"
+        ".gpu-option-active label, .theme-option-active label { color: #ffffff; }"
+        "progressbar trough { min-height: 12px; border-radius: 6px; background: #e5e8ee; }"
+        "progressbar progress { min-height: 12px; border-radius: 6px; background: #2f78df; }"
+        "treeview { background: #ffffff; color: #1b1f2a; }"
+        "treeview header button { background: #eef1f5; color: #1b1f2a; font-weight: 700; }";
+
+    const char *dark_css =
+        "window { background: #0f141b; }"
+        ".page { background: #0f141b; padding: 18px; }"
+        ".title { font-size: 26px; font-weight: 700; color: #f4f7fb; }"
+        ".status { color: #7dd3a8; font-weight: 600; }"
+        ".card { background: #171d26; border: 1px solid #303948; border-radius: 8px; padding: 14px; }"
+        ".card-title { font-size: 17px; font-weight: 700; color: #f4f7fb; }"
+        ".section-title { font-size: 16px; font-weight: 700; color: #f4f7fb; }"
+        ".metric-value { font-size: 20px; font-weight: 700; color: #f4f7fb; }"
+        ".muted { color: #aab4c3; font-size: 13px; }"
+        ".core-tile { background: #111821; border: 1px solid #303948; border-radius: 6px; padding: 8px; }"
+        ".core-label { color: #dbe3ee; font-size: 12px; font-weight: 700; }"
+        ".core-percent { color: #f4f7fb; font-size: 12px; font-weight: 700; }"
+        ".gpu-selector, .theme-selector { margin-top: 4px; }"
+        ".gpu-option, .theme-option, .command-button { background: #111821; color: #f4f7fb; border: 1px solid #405064; border-radius: 6px; padding: 5px 10px; }"
+        ".gpu-option label, .theme-option label, .command-button label { color: #f4f7fb; }"
+        ".gpu-option:hover, .theme-option:hover, .command-button:hover { background: #1d2734; }"
+        ".gpu-option-active, .theme-option-active { background: #2f78df; color: #ffffff; border-color: #5d9cff; }"
+        ".gpu-option-active label, .theme-option-active label { color: #ffffff; }"
+        "progressbar trough { min-height: 12px; border-radius: 6px; background: #293342; }"
+        "progressbar progress { min-height: 12px; border-radius: 6px; background: #5d9cff; }"
+        "treeview { background: #151c25; color: #f4f7fb; }"
+        "treeview header button { background: #202a37; color: #f4f7fb; font-weight: 700; }";
+
+    if (!theme_provider) {
+        theme_provider = gtk_css_provider_new();
+        gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
+                                                  GTK_STYLE_PROVIDER(theme_provider),
+                                                  GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    }
+
+    gtk_css_provider_load_from_data(theme_provider, dark_theme ? dark_css : light_css, -1, NULL);
+}
+
+static void set_app_theme(AppState *app, gboolean dark_theme) {
+    app->dark_theme = dark_theme;
+    app->cpu_card.dark_theme = dark_theme;
+    app->memory_card.dark_theme = dark_theme;
+    app->gpu_card.dark_theme = dark_theme;
+    apply_theme_css(dark_theme);
+    update_theme_buttons(app);
+    gtk_widget_queue_draw(app->cpu_card.drawing_area);
+    gtk_widget_queue_draw(app->memory_card.drawing_area);
+    gtk_widget_queue_draw(app->gpu_card.drawing_area);
+    gtk_widget_queue_draw(app->history_area);
+}
+
+static void on_theme_clicked(GtkButton *button, gpointer user_data) {
+    AppState *app = user_data;
+    gboolean next_dark = GTK_WIDGET(button) == app->theme_dark_button;
+
+    if (app->dark_theme == next_dark) {
+        return;
+    }
+
+    set_app_theme(app, next_dark);
+}
+
+static void on_gpu_source_clicked(GtkButton *button, gpointer user_data) {
+    AppState *app = user_data;
+    GPUSource next_source = GTK_WIDGET(button) == app->gpu_integrated_button
+        ? GPU_SOURCE_INTEGRATED
+        : GPU_SOURCE_NVIDIA;
+
+    if (app->gpu_source == next_source) {
+        return;
+    }
+
+    app->gpu_source = next_source;
+    update_gpu_source_buttons(app);
+    init_history(&app->history);
+    refresh_metrics(app);
 }
 
 static gboolean refresh_metrics(gpointer user_data) {
@@ -424,9 +555,9 @@ static gboolean refresh_metrics(gpointer user_data) {
 
     if (read_cpu_stats(&app->cpu_curr, app->cores_curr, &app->cores_count) == 0) {
         if (app->has_cpu_sample) {
-            calculate_cpu_usage(&app->cpu_prev, &app->cpu_curr);
+            app_calculate_cpu_usage(&app->cpu_prev, &app->cpu_curr);
             for (int i = 0; i < app->cores_count && i < MAX_CORES; i++) {
-                calculate_cpu_usage(&app->cores_prev[i], &app->cores_curr[i]);
+                app_calculate_cpu_usage(&app->cores_prev[i], &app->cores_curr[i]);
             }
         } else {
             app->has_cpu_sample = TRUE;
@@ -445,8 +576,8 @@ static gboolean refresh_metrics(gpointer user_data) {
     }
 
     if (read_memory_info(&app->memory) == 0) {
-        format_bytes(mem_used, sizeof(mem_used), app->memory.used);
-        format_bytes(mem_total, sizeof(mem_total), app->memory.total);
+        app_format_bytes(mem_used, sizeof(mem_used), app->memory.used);
+        app_format_bytes(mem_total, sizeof(mem_total), app->memory.total);
         snprintf(details, sizeof(details),
                  "%s used\n%s total\n%.1f%% occupied",
                  mem_used,
@@ -455,19 +586,35 @@ static gboolean refresh_metrics(gpointer user_data) {
         metric_card_set(&app->memory_card, app->memory.percentage, details);
     }
 
-    if (read_gpu_info(&app->gpu) == 0) {
+    if (read_gpu_info_for_source(&app->gpu, app->gpu_source) == 0) {
         if (app->gpu.memory_total > 0) {
             gpu_memory_percent = (double)app->gpu.memory_used / (double)app->gpu.memory_total * 100.0;
         }
-        format_bytes(gpu_used, sizeof(gpu_used), app->gpu.memory_used);
-        format_bytes(gpu_total, sizeof(gpu_total), app->gpu.memory_total);
-        snprintf(details, sizeof(details),
-                 "%s\n%s / %s VRAM\n%.1f C, %.0f W",
-                 app->gpu.name,
-                 gpu_used,
-                 gpu_total,
-                 app->gpu.temperature,
-                 app->gpu.power);
+        app_format_bytes(gpu_used, sizeof(gpu_used), app->gpu.memory_used);
+        app_format_bytes(gpu_total, sizeof(gpu_total), app->gpu.memory_total);
+        if (app->gpu.memory_total > 0) {
+            snprintf(details, sizeof(details),
+                     "%s\n%s / %s VRAM\n%.1f C, %.0f W\nSource: %s",
+                     app->gpu.name,
+                     gpu_used,
+                     gpu_total,
+                     app->gpu.temperature,
+                     app->gpu.power,
+                     gpu_source_label(app->gpu_source));
+        } else {
+            if (app->gpu.clock > 0) {
+                snprintf(details, sizeof(details),
+                         "%s\nShared system memory\nClock: %lu MHz\nSource: %s",
+                         app->gpu.name,
+                         app->gpu.clock,
+                         gpu_source_label(app->gpu_source));
+            } else {
+                snprintf(details, sizeof(details),
+                         "%s\nShared system memory\nDetailed metrics unavailable\nSource: %s",
+                         app->gpu.name,
+                         gpu_source_label(app->gpu_source));
+            }
+        }
         metric_card_set(&app->gpu_card, app->gpu.usage, details);
     }
 
@@ -491,29 +638,56 @@ static gboolean refresh_metrics(gpointer user_data) {
     return G_SOURCE_CONTINUE;
 }
 
-static void load_css(void) {
-    const char *css =
-        "window { background: #f3f4f6; }"
-        ".page { padding: 18px; }"
-        ".title { font-size: 26px; font-weight: 700; color: #151820; }"
-        ".status { color: #256b4f; font-weight: 600; }"
-        ".card { background: #ffffff; border: 1px solid #d8dde6; border-radius: 8px; padding: 14px; }"
-        ".card-title { font-size: 17px; font-weight: 700; color: #1b1f2a; }"
-        ".section-title { font-size: 16px; font-weight: 700; color: #1b1f2a; }"
-        ".metric-value { font-size: 20px; font-weight: 700; color: #1b1f2a; }"
-        ".muted { color: #586174; font-size: 13px; }"
-        ".core-label { color: #586174; font-size: 12px; }"
-        "progressbar trough { min-height: 12px; border-radius: 6px; background: #e5e8ee; }"
-        "progressbar progress { min-height: 12px; border-radius: 6px; background: #2f78df; }"
-        "treeview { background: #ffffff; color: #1b1f2a; }"
-        "treeview header button { background: #eef1f5; color: #1b1f2a; font-weight: 700; }";
+static GtkWidget *create_gpu_selector(AppState *app) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *label = create_label("Source", "muted");
+    GtkStyleContext *context;
 
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_data(provider, css, -1, NULL);
-    gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
-                                              GTK_STYLE_PROVIDER(provider),
-                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
+    context = gtk_widget_get_style_context(box);
+    gtk_style_context_add_class(context, "gpu-selector");
+
+    app->gpu_integrated_button = gtk_button_new_with_label("Integrated");
+    app->gpu_nvidia_button = gtk_button_new_with_label("NVIDIA");
+    set_widget_class(app->gpu_integrated_button, "gpu-option", TRUE);
+    set_widget_class(app->gpu_nvidia_button, "gpu-option", TRUE);
+    gtk_widget_set_tooltip_text(app->gpu_integrated_button, "Show the integrated GPU");
+    gtk_widget_set_tooltip_text(app->gpu_nvidia_button, "Show the NVIDIA GPU");
+
+    g_signal_connect(app->gpu_integrated_button, "clicked", G_CALLBACK(on_gpu_source_clicked), app);
+    g_signal_connect(app->gpu_nvidia_button, "clicked", G_CALLBACK(on_gpu_source_clicked), app);
+    update_gpu_source_buttons(app);
+
+    gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), app->gpu_integrated_button, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), app->gpu_nvidia_button, FALSE, FALSE, 0);
+
+    return box;
+}
+
+static GtkWidget *create_theme_selector(AppState *app) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *label = create_label("Theme", "muted");
+    GtkStyleContext *context;
+
+    context = gtk_widget_get_style_context(box);
+    gtk_style_context_add_class(context, "theme-selector");
+
+    app->theme_light_button = gtk_button_new_with_label("Light");
+    app->theme_dark_button = gtk_button_new_with_label("Dark");
+    set_widget_class(app->theme_light_button, "theme-option", TRUE);
+    set_widget_class(app->theme_dark_button, "theme-option", TRUE);
+    gtk_widget_set_tooltip_text(app->theme_light_button, "Use light theme");
+    gtk_widget_set_tooltip_text(app->theme_dark_button, "Use dark theme");
+
+    g_signal_connect(app->theme_light_button, "clicked", G_CALLBACK(on_theme_clicked), app);
+    g_signal_connect(app->theme_dark_button, "clicked", G_CALLBACK(on_theme_clicked), app);
+    update_theme_buttons(app);
+
+    gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), app->theme_light_button, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), app->theme_dark_button, FALSE, FALSE, 0);
+
+    return box;
 }
 
 static GtkWidget *create_history_panel(AppState *app) {
@@ -600,6 +774,7 @@ static GtkWidget *create_process_panel(AppState *app) {
 
     app->process_count_label = create_label("No process data yet", "muted");
     gtk_label_set_xalign(GTK_LABEL(app->process_count_label), 1.0);
+    set_widget_class(button, "command-button", TRUE);
     g_signal_connect(button, "clicked", G_CALLBACK(show_process_window), app);
 
     gtk_box_pack_start(GTK_BOX(header), title, TRUE, TRUE, 0);
@@ -616,6 +791,7 @@ static void build_ui(AppState *app) {
     GtkWidget *page;
     GtkWidget *header;
     GtkWidget *title;
+    GtkWidget *theme_selector;
     GtkWidget *process_button;
     GtkWidget *metrics_grid;
     GtkWidget *main_grid;
@@ -648,10 +824,13 @@ static void build_ui(AppState *app) {
     header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     title = create_label("System Monitor", "title");
     app->status_label = create_label("Starting...", "status");
+    theme_selector = create_theme_selector(app);
     process_button = gtk_button_new_with_label("Processes");
+    set_widget_class(process_button, "command-button", TRUE);
     g_signal_connect(process_button, "clicked", G_CALLBACK(show_process_window), app);
     gtk_label_set_xalign(GTK_LABEL(app->status_label), 1.0);
     gtk_box_pack_start(GTK_BOX(header), title, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(header), theme_selector, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(header), process_button, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(header), app->status_label, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(page), header, FALSE, FALSE, 0);
@@ -667,6 +846,7 @@ static void build_ui(AppState *app) {
     g_signal_connect(app->cpu_card.drawing_area, "draw", G_CALLBACK(draw_metric_card), &app->cpu_card);
     g_signal_connect(app->memory_card.drawing_area, "draw", G_CALLBACK(draw_metric_card), &app->memory_card);
     g_signal_connect(app->gpu_card.drawing_area, "draw", G_CALLBACK(draw_metric_card), &app->gpu_card);
+    gtk_box_pack_start(GTK_BOX(app->gpu_card.card), create_gpu_selector(app), FALSE, FALSE, 0);
 
     gtk_grid_attach(GTK_GRID(metrics_grid), app->cpu_card.card, 0, 0, 1, 1);
     gtk_grid_attach(GTK_GRID(metrics_grid), app->memory_card.card, 1, 0, 1, 1);
@@ -684,7 +864,12 @@ static void build_ui(AppState *app) {
     gtk_style_context_add_class(context, "card");
     gtk_widget_set_hexpand(cores_card, TRUE);
     cores_title = create_label("CPU Cores", "section-title");
-    app->cores_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    app->cores_box = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(app->cores_box), GTK_SELECTION_NONE);
+    gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(app->cores_box), 2);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(app->cores_box), 4);
+    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(app->cores_box), 8);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(app->cores_box), 8);
     gtk_box_pack_start(GTK_BOX(cores_card), cores_title, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(cores_card), app->cores_box, TRUE, TRUE, 0);
 
@@ -705,9 +890,12 @@ int main(int argc, char **argv) {
     memset(&app, 0, sizeof(app));
 
     gtk_init(&argc, &argv);
-    load_css();
+    apply_theme_css(FALSE);
     init_history(&app.history);
+    app.gpu_source = GPU_SOURCE_NVIDIA;
+    app.dark_theme = FALSE;
     build_ui(&app);
+    set_app_theme(&app, FALSE);
 
     gtk_widget_show_all(app.window);
     gtk_window_maximize(GTK_WINDOW(app.window));

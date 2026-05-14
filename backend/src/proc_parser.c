@@ -10,6 +10,116 @@
 #include "config.h"
 #include "proc_parser.h"
 
+static int read_first_line(const char *path, char *buffer, size_t size) {
+    FILE *fp;
+
+    if (!path || !buffer || size == 0) {
+        return -1;
+    }
+
+    fp = fopen(path, "r");
+    if (!fp) {
+        return -1;
+    }
+
+    if (!fgets(buffer, size, fp)) {
+        fclose(fp);
+        return -1;
+    }
+
+    buffer[strcspn(buffer, "\r\n")] = '\0';
+    fclose(fp);
+    return 0;
+}
+
+static unsigned long read_ulong_file(const char *path) {
+    char buffer[64];
+    unsigned long value = 0;
+
+    if (read_first_line(path, buffer, sizeof(buffer)) != 0) {
+        return 0;
+    }
+
+    if (sscanf(buffer, "%lu", &value) != 1) {
+        return 0;
+    }
+
+    return value;
+}
+
+static const char *gpu_vendor_name(const char *vendor_id) {
+    if (strcmp(vendor_id, "0x8086") == 0) return "Intel Integrated GPU";
+    if (strcmp(vendor_id, "0x1002") == 0 || strcmp(vendor_id, "0x1022") == 0) return "AMD Integrated GPU";
+    if (strcmp(vendor_id, "0x10de") == 0) return "NVIDIA GPU";
+    return "GPU";
+}
+
+static int is_integrated_gpu_vendor(const char *vendor_id) {
+    return strcmp(vendor_id, "0x8086") == 0 ||
+           strcmp(vendor_id, "0x1002") == 0 ||
+           strcmp(vendor_id, "0x1022") == 0;
+}
+
+static int read_drm_gpu_info(GPUInfo *gpu, GPUSource source) {
+    DIR *dir = opendir("/sys/class/drm");
+    struct dirent *entry;
+
+    if (!dir) {
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        char vendor_path[256];
+        char device_path[256];
+        char freq_path[256];
+        char card_name[32];
+        char vendor_id[32];
+        char device_id[32] = "";
+
+        if (strncmp(entry->d_name, "card", 4) != 0 || !isdigit(entry->d_name[4]) ||
+            strchr(entry->d_name, '-') != NULL) {
+            continue;
+        }
+
+        snprintf(card_name, sizeof(card_name), "%.31s", entry->d_name);
+        snprintf(vendor_path, sizeof(vendor_path), "/sys/class/drm/%s/device/vendor", card_name);
+        if (read_first_line(vendor_path, vendor_id, sizeof(vendor_id)) != 0) {
+            continue;
+        }
+
+        if (source == GPU_SOURCE_INTEGRATED && !is_integrated_gpu_vendor(vendor_id)) {
+            continue;
+        }
+
+        if (source == GPU_SOURCE_NVIDIA && strcmp(vendor_id, "0x10de") != 0) {
+            continue;
+        }
+
+        snprintf(device_path, sizeof(device_path), "/sys/class/drm/%s/device/device", card_name);
+        read_first_line(device_path, device_id, sizeof(device_id));
+
+        memset(gpu, 0, sizeof(GPUInfo));
+        snprintf(gpu->name, sizeof(gpu->name), "%s", gpu_vendor_name(vendor_id));
+
+        if (source == GPU_SOURCE_INTEGRATED) {
+            snprintf(freq_path, sizeof(freq_path),
+                     "/sys/class/drm/%s/gt/gt0/rps_cur_freq_mhz", card_name);
+            gpu->clock = read_ulong_file(freq_path);
+            if (gpu->clock == 0) {
+                snprintf(freq_path, sizeof(freq_path),
+                         "/sys/class/drm/%s/gt/gt1/rps_cur_freq_mhz", card_name);
+                gpu->clock = read_ulong_file(freq_path);
+            }
+        }
+
+        closedir(dir);
+        return 0;
+    }
+
+    closedir(dir);
+    return -1;
+}
+
 double get_cpu_temperature() {
     double temp = 0.0;
     
@@ -300,23 +410,15 @@ int read_memory_info(MemoryInfo *mem) {
     return 0;
 }
 
-int read_gpu_info(GPUInfo *gpu) {
+static int read_nvidia_smi_gpu_info(GPUInfo *gpu) {
     memset(gpu, 0, sizeof(GPUInfo));
-    strcpy(gpu->name, "Unknown GPU");
-    
-    static unsigned long long stable_memory_total = 0;
-    static char stable_name[128] = "";
-    static int first_run = 1;
-    
-    printf("🔍 Searching for GPU information...\n");
+    strcpy(gpu->name, "No NVIDIA GPU");
     
     FILE *fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,clocks.current.graphics,name --format=csv,noheader,nounits 2>/dev/null", "r");
     
     if (fp) {
         char line[512];
         if (fgets(line, sizeof(line), fp)) {
-            printf("Raw nvidia-smi line: %s\n", line);
-            
             char *line_ptr = line;
             while (*line_ptr == ' ' || *line_ptr == '\t' || *line_ptr == '\n' || *line_ptr == '\r') {
                 line_ptr++;
@@ -344,188 +446,59 @@ int read_gpu_info(GPUInfo *gpu) {
                 unsigned long clock = 0;
                 char name[128] = "";
                 
-                if (sscanf(parts[0], "%lf", &usage) != 1) {
-                    printf("Failed to parse usage: %s\n", parts[0]);
-                    usage = 0;
-                }
-                
-                if (sscanf(parts[1], "%llu", &mem_total) != 1) {
-                    printf("Failed to parse memory total: %s\n", parts[1]);
-                    mem_total = 8192;
-                }
-                
-                if (sscanf(parts[2], "%llu", &mem_used) != 1) {
-                    printf("Failed to parse memory used: %s\n", parts[2]);
-                    mem_used = 0;
-                }
-                
-                if (sscanf(parts[3], "%lf", &temp) != 1) {
-                    printf("Failed to parse temperature: %s\n", parts[3]);
-                    temp = 40;
-                }
-                
-                if (sscanf(parts[4], "%lf", &power) != 1) {
-                    printf("Failed to parse power: %s\n", parts[4]);
-                    power = 30;
-                }
-                
-                if (sscanf(parts[5], "%lu", &clock) != 1) {
-                    printf("Failed to parse clock: %s\n", parts[5]);
-                    clock = 1500;
+                if (sscanf(parts[0], "%lf", &usage) != 1 ||
+                    sscanf(parts[1], "%llu", &mem_total) != 1 ||
+                    sscanf(parts[2], "%llu", &mem_used) != 1 ||
+                    sscanf(parts[3], "%lf", &temp) != 1 ||
+                    sscanf(parts[4], "%lf", &power) != 1 ||
+                    sscanf(parts[5], "%lu", &clock) != 1) {
+                    pclose(fp);
+                    return 0;
                 }
                 
                 strncpy(name, parts[6], sizeof(name) - 1);
                 name[sizeof(name) - 1] = '\0';
-                
-                unsigned long long mem_total_bytes = mem_total * 1024 * 1024;
-                unsigned long long mem_used_bytes = mem_used * 1024 * 1024;
-                
-                printf("Parsed values:\n");
-                printf("  usage: %.1f%%\n", usage);
-                printf("  mem_total: %llu MB (%llu bytes)\n", mem_total, mem_total_bytes);
-                printf("  mem_used: %llu MB (%llu bytes)\n", mem_used, mem_used_bytes);
-                printf("  temp: %.1f°C\n", temp);
-                printf("  power: %.1fW\n", power);
-                printf("  clock: %lu MHz\n", clock);
-                printf("  name: %s\n", name);
-                
-                if (first_run) {
-                    stable_memory_total = mem_total_bytes;
-                    strcpy(stable_name, name);
-                    first_run = 0;
-                    
-                    printf("✅ Storing stable values:\n");
-                    printf("   memory_total: %llu bytes (%.2f GB)\n", 
-                           stable_memory_total, 
-                           stable_memory_total / (1024.0 * 1024 * 1024));
-                }
-                
+
                 gpu->usage = usage;
-                gpu->memory_total = stable_memory_total;
-                gpu->memory_used = mem_used_bytes;
+                gpu->memory_total = mem_total * 1024 * 1024;
+                gpu->memory_used = mem_used * 1024 * 1024;
                 gpu->temperature = temp;
                 gpu->power = power;
                 gpu->clock = clock;
-                strcpy(gpu->name, stable_name);
+                strncpy(gpu->name, name, sizeof(gpu->name) - 1);
+                gpu->name[sizeof(gpu->name) - 1] = '\0';
                 
                 pclose(fp);
-                
-                printf("✅ Final GPU data:\n");
-                printf("   Name: %s\n", gpu->name);
-                printf("   Memory: %.2f / %.2f GB\n", 
-                       gpu->memory_used / (1024.0 * 1024 * 1024),
-                       gpu->memory_total / (1024.0 * 1024 * 1024));
-                printf("   Usage: %.1f%%\n", gpu->usage);
                 return 0;
             }
         }
         pclose(fp);
-    } else {
-        printf("nvidia-smi command failed\n");
     }
-    
-    if (first_run) {
-        printf("⚠️ Could not determine GPU memory via nvidia-smi, using defaults\n");
-        stable_memory_total = 8ULL * 1024 * 1024 * 1024; // 8GB в байтах
-        strcpy(stable_name, "NVIDIA GeForce RTX 4060");
-        first_run = 0;
-    }
-    
-    gpu->memory_total = stable_memory_total;
-    strcpy(gpu->name, stable_name);
-    
-    fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.used,temperature.gpu,power.draw,clocks.current.graphics --format=csv,noheader,nounits 2>/dev/null", "r");
-    if (fp) {
-        char line[256];
-        if (fgets(line, sizeof(line), fp)) {
-            printf("Raw dynamic data line: %s\n", line);
-            
-            char *line_ptr = line;
-            while (*line_ptr == ' ' || *line_ptr == '\t' || *line_ptr == '\n' || *line_ptr == '\r') {
-                line_ptr++;
-            }
-            
-            char *parts[5];
-            int part_count = 0;
-            char *token = strtok(line_ptr, ",");
-            
-            while (token && part_count < 5) {
-                while (*token == ' ' || *token == '\t') token++;
-                char *end = token + strlen(token) - 1;
-                while (end > token && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) {
-                    *end = '\0';
-                    end--;
-                }
-                
-                parts[part_count++] = token;
-                token = strtok(NULL, ",");
-            }
-            
-            if (part_count >= 5) {
-                double usage = 0, temp = 0, power = 0;
-                unsigned long long mem_used_mb = 0;
-                unsigned long clock = 0;
-                
-                if (sscanf(parts[0], "%lf", &usage) == 1 &&
-                    sscanf(parts[1], "%llu", &mem_used_mb) == 1 &&
-                    sscanf(parts[2], "%lf", &temp) == 1 &&
-                    sscanf(parts[3], "%lf", &power) == 1 &&
-                    sscanf(parts[4], "%lu", &clock) == 1) {
-                    
-                    gpu->usage = usage;
-                    gpu->memory_used = mem_used_mb * 1024 * 1024;
-                    gpu->temperature = temp;
-                    gpu->power = power;
-                    gpu->clock = clock;
-                    
-                    printf("Dynamic values parsed successfully\n");
-                } else {
-                    printf("Failed to parse dynamic values\n");
-                    gpu->usage = 5.0 + (rand() % 30);
-                    gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
-                    gpu->temperature = 40.0 + gpu->usage * 0.5;
-                    gpu->power = 30.0 + gpu->usage * 0.8;
-                    gpu->clock = 1500 + (rand() % 500);
-                }
-            } else {
-                printf("Not enough parts in dynamic data: %d\n", part_count);
-                gpu->usage = 5.0 + (rand() % 30);
-                gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
-                gpu->temperature = 40.0 + gpu->usage * 0.5;
-                gpu->power = 30.0 + gpu->usage * 0.8;
-                gpu->clock = 1500 + (rand() % 500);
-            }
-        } else {
-            printf("Failed to read from nvidia-smi for dynamic data\n");
-            gpu->usage = 5.0 + (rand() % 30);
-            gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
-            gpu->temperature = 40.0 + gpu->usage * 0.5;
-            gpu->power = 30.0 + gpu->usage * 0.8;
-            gpu->clock = 1500 + (rand() % 500);
-        }
-        pclose(fp);
-    } else {
-        printf("nvidia-smi command for dynamic data failed\n");
-        gpu->usage = 5.0 + (rand() % 30);
-        gpu->memory_used = stable_memory_total * (gpu->usage / 100.0);
-        gpu->temperature = 40.0 + gpu->usage * 0.5;
-        gpu->power = 30.0 + gpu->usage * 0.8;
-        gpu->clock = 1500 + (rand() % 500);
-    }
-    
-    if (gpu->memory_used > gpu->memory_total || gpu->memory_used == 0) {
-        printf("⚠️ memory_used некорректное (%llu), исправляем\n", gpu->memory_used);
-        gpu->memory_used = gpu->memory_total * (gpu->usage / 100.0);
-    }
-    
-    printf("✅ Final GPU data (fallback):\n");
-    printf("   Name: %s\n", gpu->name);
-    printf("   Memory: %.2f / %.2f GB\n", 
-           gpu->memory_used / (1024.0 * 1024 * 1024),
-           gpu->memory_total / (1024.0 * 1024 * 1024));
-    printf("   Usage: %.1f%%\n", gpu->usage);
-    
+
     return 0;
+}
+
+int read_gpu_info_for_source(GPUInfo *gpu, GPUSource source) {
+    if (!gpu) {
+        return -1;
+    }
+
+    if (source == GPU_SOURCE_INTEGRATED) {
+        memset(gpu, 0, sizeof(GPUInfo));
+        strcpy(gpu->name, "No integrated GPU");
+        read_drm_gpu_info(gpu, GPU_SOURCE_INTEGRATED);
+        return 0;
+    }
+
+    read_nvidia_smi_gpu_info(gpu);
+    if (strcmp(gpu->name, "No NVIDIA GPU") == 0) {
+        read_drm_gpu_info(gpu, GPU_SOURCE_NVIDIA);
+    }
+    return 0;
+}
+
+int read_gpu_info(GPUInfo *gpu) {
+    return read_gpu_info_for_source(gpu, GPU_SOURCE_NVIDIA);
 }
 
 int get_processes(ProcessInfo *processes, int *count) {

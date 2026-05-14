@@ -6,24 +6,26 @@ LDFLAGS = -lpthread -lm
 # Директории
 TEST_DIR = tests
 BACKEND_SRC = backend/src
+APP_SRC = app/src
 BACKEND_BUILD = backend/build-test
+APP_BUILD = app/build-test
 
-# Исходные файлы бэкенда (НЕ включаем main.c!)
+# Исходные файлы бэкенда, которые нужны desktop-приложению
 REAL_SOURCES = $(BACKEND_SRC)/proc_parser.c \
-               $(BACKEND_SRC)/json_formatter.c \
-               $(BACKEND_SRC)/history.c \
-               $(BACKEND_SRC)/server.c
-# main.c НЕ включаем - у нас свой main в test_runner.c
+               $(BACKEND_SRC)/history.c
+
+# Чистая app-логика без GTK, чтобы ее можно было тестировать без окна
+APP_SOURCES = $(APP_SRC)/app_metrics.c
 
 # Исходные файлы тестов
 TEST_SOURCES = $(TEST_DIR)/test_runner.c \
                $(TEST_DIR)/test_proc_parser.c \
-               $(TEST_DIR)/test_json_formatter.c \
                $(TEST_DIR)/test_history.c \
-               $(TEST_DIR)/test_server_mock.c
+               $(TEST_DIR)/test_app_metrics.c
 
 # Объектные файлы
 REAL_OBJECTS = $(REAL_SOURCES:$(BACKEND_SRC)/%.c=$(BACKEND_BUILD)/%.o)
+APP_OBJECTS = $(APP_SOURCES:$(APP_SRC)/%.c=$(APP_BUILD)/%.o)
 TEST_OBJECTS = $(TEST_SOURCES:$(TEST_DIR)/%.c=$(TEST_DIR)/%.o)
 
 # Цвета для вывода
@@ -37,21 +39,28 @@ NC = \033[0m
 $(BACKEND_BUILD):
 	@mkdir -p $(BACKEND_BUILD)
 
+$(APP_BUILD):
+	@mkdir -p $(APP_BUILD)
+
 # Цель по умолчанию
 all: prepare test_runner
 
 # Подготовка
-prepare: $(BACKEND_BUILD)
+prepare: $(BACKEND_BUILD) $(APP_BUILD)
 	@echo "$(BLUE)📁 Build directory created$(NC)"
 
 # Линковка тестового раннера
-test_runner: $(TEST_OBJECTS) $(REAL_OBJECTS)
-	@$(CC) $(TEST_OBJECTS) $(REAL_OBJECTS) -o $@ $(LDFLAGS)
+test_runner: $(TEST_OBJECTS) $(REAL_OBJECTS) $(APP_OBJECTS)
+	@$(CC) $(TEST_OBJECTS) $(REAL_OBJECTS) $(APP_OBJECTS) -o $@ $(LDFLAGS)
 	@echo "$(GREEN)✅ Test runner created: $@$(NC)"
 
 # Компиляция реальных исходников
 $(BACKEND_BUILD)/%.o: $(BACKEND_SRC)/%.c | $(BACKEND_BUILD)
 	@$(CC) $(CFLAGS) -c $< -o $@
+	@echo "  $(YELLOW)Compiled:$(NC) $<"
+
+$(APP_BUILD)/%.o: $(APP_SRC)/%.c | $(APP_BUILD)
+	@$(CC) $(CFLAGS) -I$(APP_SRC) -c $< -o $@
 	@echo "  $(YELLOW)Compiled:$(NC) $<"
 
 # Компиляция тестов
@@ -61,7 +70,7 @@ $(TEST_DIR)/%.o: $(TEST_DIR)/%.c
 
 # Очистка
 clean:
-	@rm -rf $(BACKEND_BUILD) $(TEST_DIR)/*.o test_runner
+	@rm -rf $(BACKEND_BUILD) $(APP_BUILD) $(TEST_DIR)/*.o test_runner
 	@echo "$(GREEN)✅ Cleaned up$(NC)"
 
 # Запуск тестов
