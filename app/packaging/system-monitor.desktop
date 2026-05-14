@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=System Monitor
+Comment=Native system monitor dashboard
+Exec=/absolute/path/to/system-monitor/app/build/system-monitor-app
+Path=/absolute/path/to/system-monitor/app
+Terminal=false
+Categories=System;Monitor;GTK;
+StartupNotify=true
