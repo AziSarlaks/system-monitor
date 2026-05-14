@@ -57,10 +57,27 @@ static int test_history_json() {
     return 1;
 }
 
+static int test_history_json_small_buffer() {
+    HistoryData history;
+    init_history(&history);
+    char buffer[16];
+
+    for (int i = 0; i < HISTORY_SIZE; i++) {
+        add_to_history(&history, i, i, i, i, i);
+    }
+
+    get_history_json(buffer, sizeof(buffer), &history);
+
+    TEST_ASSERT(buffer[sizeof(buffer) - 1] == '\0');
+
+    return 1;
+}
+
 // Сьют тестов
 void test_history_suite() {
     RUN_TEST(test_history_init);
     RUN_TEST(test_history_add);
     RUN_TEST(test_history_wrap);
     RUN_TEST(test_history_json);
+    RUN_TEST(test_history_json_small_buffer);
 }

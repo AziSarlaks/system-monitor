@@ -88,6 +88,12 @@ void format_system_info_json(char *buffer, int buffer_size,
         printf("⚠️ GPU memory_used больше memory_total, исправляем\n");
         gpu->memory_used = gpu->memory_total * gpu->usage / 100.0;
     }
+
+    char safe_gpu_name[128];
+    json_sanitize_string(gpu->name, safe_gpu_name, sizeof(safe_gpu_name));
+    if (strlen(safe_gpu_name) == 0) {
+        strcpy(safe_gpu_name, "Unknown GPU");
+    }
     
     offset += safe_snprintf(buffer, buffer_size, offset,
         "{\n"
@@ -157,7 +163,7 @@ void format_system_info_json(char *buffer, int buffer_size,
         "  \"processes\": [",
         mem->total, mem->used, mem->free, mem->cached, mem->percentage,
         gpu->usage, gpu->memory_total, gpu->memory_used,
-        gpu->temperature, gpu->power, gpu->clock, gpu->name);
+        gpu->temperature, gpu->power, gpu->clock, safe_gpu_name);
     
     if (written > 0) {
         offset += written;

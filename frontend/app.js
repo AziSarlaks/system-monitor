@@ -21,6 +21,7 @@ class SystemMonitor {
         this.currentPage = 1;
         this.processesPerPage = 10;
         this.allProcesses = [];
+        this.filteredProcesses = [];
         this.init();
     }
 
@@ -39,61 +40,103 @@ class SystemMonitor {
     }
 
     updateProcesses(processes) {
-        this.allProcesses = processes;
+        this.allProcesses = Array.isArray(processes) ? processes : [];
+        this.filteredProcesses = [...this.allProcesses];
         this.renderProcessesPage(1);
     }
 
-    renderProcessesPage(page) {
+    renderProcessesPage(page = this.currentPage) {
         const tbody = document.getElementById('processTableBody');
         if (!tbody) return;
         
         this.currentPage = page;
-        const startIndex = (page - 1) * this.processesPerPage;
-        const endIndex = Math.min(startIndex + this.processesPerPage, this.allProcesses.length);
-        const pageProcesses = this.allProcesses.slice(startIndex, endIndex);
+        const source = this.filteredProcesses || [];
         
         const sortBy = document.getElementById('sortBy')?.value || 'cpu';
-        const sorted = [...pageProcesses].sort((a, b) => {
+        const sorted = [...source].sort((a, b) => {
             if (sortBy === 'cpu') return (b.cpu || 0) - (a.cpu || 0);
             if (sortBy === 'memory') return (b.memory || 0) - (a.memory || 0);
             return (a.name || '').localeCompare(b.name || '');
         });
+        const totalPages = Math.max(1, Math.ceil(sorted.length / this.processesPerPage));
+        if (this.currentPage > totalPages) {
+            this.currentPage = totalPages;
+        }
+
+        const startIndex = (this.currentPage - 1) * this.processesPerPage;
+        const endIndex = Math.min(startIndex + this.processesPerPage, sorted.length);
+        const pageProcesses = sorted.slice(startIndex, endIndex);
         
         tbody.innerHTML = '';
         
-        sorted.forEach((proc) => {
-            const cpu = proc.cpu || 0;
-            const memory = proc.memory || 0;
-            const cpuColor = this.getUsageColor(cpu);
-            
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td class="pid">${proc.pid || '?'}</td>
-                <td class="process-name">
-                    <span class="process-icon">${(proc.name || '?').charAt(0).toUpperCase()}</span>
-                    ${proc.name || 'Unknown'}
-                </td>
-                <td><span class="status ${this.getProcessStateClass(proc.state)}">${proc.state || '?'}</span></td>
-                <td><span class="cpu-value" style="color: ${cpuColor}">${cpu.toFixed(1)}%</span></td>
-                <td>${this.formatBytes(memory)}</td>
-                <td class="command" title="${proc.command || ''}">
-                    ${this.truncateText(proc.command || '', 40)}
-                </td>
-            `;
-            
-            tbody.appendChild(row);
+        pageProcesses.forEach((proc) => {
+            tbody.appendChild(this.createProcessRow(proc));
         });
         
-        if (sorted.length === 0) {
+        if (pageProcesses.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="loading">No processes found</td></tr>';
         }
         
-        const totalPages = Math.ceil(this.allProcesses.length / this.processesPerPage);
         document.getElementById('processCount').textContent = 
-            `${this.allProcesses.length} processes (Page ${page}/${totalPages})`;
+            `${source.length} processes (Page ${this.currentPage}/${totalPages})`;
+        const pageInfo = document.getElementById('pageInfo');
+        if (pageInfo) {
+            pageInfo.textContent = `Page ${this.currentPage}`;
+        }
         
-        document.querySelector('.btn-prev').disabled = page <= 1;
-        document.querySelector('.btn-next').disabled = page >= totalPages;
+        document.querySelector('.btn-prev').disabled = this.currentPage <= 1;
+        document.querySelector('.btn-next').disabled = this.currentPage >= totalPages;
+    }
+
+    createProcessRow(proc) {
+        const cpu = proc.cpu || 0;
+        const memory = proc.memory || 0;
+        const name = proc.name || 'Unknown';
+        const command = proc.command || '';
+        const state = proc.state || '?';
+
+        const row = document.createElement('tr');
+
+        const pidCell = document.createElement('td');
+        pidCell.className = 'pid';
+        pidCell.textContent = proc.pid || '?';
+        row.appendChild(pidCell);
+
+        const nameCell = document.createElement('td');
+        nameCell.className = 'process-name';
+        const icon = document.createElement('span');
+        icon.className = 'process-icon';
+        icon.textContent = name.charAt(0).toUpperCase() || '?';
+        nameCell.appendChild(icon);
+        nameCell.appendChild(document.createTextNode(` ${name}`));
+        row.appendChild(nameCell);
+
+        const stateCell = document.createElement('td');
+        const stateBadge = document.createElement('span');
+        stateBadge.className = `status ${this.getProcessStateClass(state)}`;
+        stateBadge.textContent = state;
+        stateCell.appendChild(stateBadge);
+        row.appendChild(stateCell);
+
+        const cpuCell = document.createElement('td');
+        const cpuValue = document.createElement('span');
+        cpuValue.className = 'cpu-value';
+        cpuValue.style.color = this.getUsageColor(cpu);
+        cpuValue.textContent = `${cpu.toFixed(1)}%`;
+        cpuCell.appendChild(cpuValue);
+        row.appendChild(cpuCell);
+
+        const memoryCell = document.createElement('td');
+        memoryCell.textContent = this.formatBytes(memory);
+        row.appendChild(memoryCell);
+
+        const commandCell = document.createElement('td');
+        commandCell.className = 'command';
+        commandCell.title = command;
+        commandCell.textContent = this.truncateText(command, 40);
+        row.appendChild(commandCell);
+
+        return row;
     }
 
     setupEventListeners() {
@@ -165,7 +208,7 @@ class SystemMonitor {
                 const totalPages = Math.ceil(this.filteredProcesses.length / this.processesPerPage);
                 if (this.currentPage < totalPages) {
                     this.currentPage++;
-                    this.renderProcessesPage();
+                    this.renderProcessesPage(this.currentPage);
                 }
             });
         }
@@ -661,7 +704,13 @@ class SystemMonitor {
         
         const gpuNameElement = document.querySelector('.gpu-card .card-header h2');
         if (gpuNameElement && gpu.name) {
-            gpuNameElement.innerHTML = `<i class="fas fa-gamepad"></i> ${gpu.name}`;
+            gpuNameElement.innerHTML = '<i class="fas fa-gamepad"></i> ';
+            gpuNameElement.appendChild(document.createTextNode(gpu.name));
+        }
+
+        const gpuNameValue = document.getElementById('gpuName');
+        if (gpuNameValue && gpu.name) {
+            gpuNameValue.textContent = gpu.name;
         }
         
         const memBar = document.getElementById('gpuMemBar');
@@ -675,40 +724,6 @@ class SystemMonitor {
             this.addToLocalHistory('gpu_memory', memPercent);
             this.addToLocalHistory('gpu_temperature', gpu.temperature || 0);
         }
-    }
-
-    updateProcesses(processes) {
-        const tbody = document.getElementById('processTableBody');
-        if (!tbody) return;
-        
-        const sorted = [...processes].sort((a, b) => (b.cpu || 0) - (a.cpu || 0));
-        
-        tbody.innerHTML = '';
-        
-        sorted.slice(0, 15).forEach((proc) => {
-            const cpu = proc.cpu || 0;
-            const memory = proc.memory || 0;
-            const cpuColor = this.getUsageColor(cpu);
-            
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td class="pid">${proc.pid || '?'}</td>
-                <td class="process-name">
-                    <span class="process-icon">${(proc.name || '?').charAt(0).toUpperCase()}</span>
-                    ${proc.name || 'Unknown'}
-                </td>
-                <td><span class="status ${this.getProcessStateClass(proc.state)}">${proc.state || '?'}</span></td>
-                <td><span class="cpu-value" style="color: ${cpuColor}">${cpu.toFixed(1)}%</span></td>
-                <td>${this.formatBytes(memory)}</td>
-                <td class="command" title="${proc.command || ''}">
-                    ${this.truncateText(proc.command || '', 40)}
-                </td>
-            `;
-            
-            tbody.appendChild(row);
-        });
-        
-        document.getElementById('processCount').textContent = `${processes.length} processes`;
     }
 
     updateLastUpdate() {
@@ -817,10 +832,8 @@ class SystemMonitor {
         
         return {
             usage: usage,
-            memory: {
-                total: memoryTotal,
-                used: memoryTotal * (usage / 100)
-            },
+            memory_total: memoryTotal,
+            memory_used: memoryTotal * (usage / 100),
             temperature: 45 + usage * 0.3,
             power: 60 + usage * 0.7,
             clock: 1500 + Math.random() * 600,
@@ -962,10 +975,14 @@ class SystemMonitor {
     showNotification(message, type = 'info') {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        toast.innerHTML = `
-            <i class="fas fa-${type === 'success' ? 'check-circle' : 'info-circle'}"></i>
-            <span>${message}</span>
-        `;
+
+        const icon = document.createElement('i');
+        icon.className = `fas fa-${type === 'success' ? 'check-circle' : 'info-circle'}`;
+        toast.appendChild(icon);
+
+        const text = document.createElement('span');
+        text.textContent = message;
+        toast.appendChild(text);
         
         document.body.appendChild(toast);
         
@@ -977,58 +994,15 @@ class SystemMonitor {
         }, 3000);
     }
 
-    setupEventListeners() {
-        document.getElementById('refreshBtn')?.addEventListener('click', () => {
-            if (this.isOnline) {
-                this.loadSystemData();
-                this.loadHistory();
-            } else {
-                this.generateDemoData();
-            }
-            
-            const btn = document.getElementById('refreshBtn');
-            btn.classList.add('spin');
-            setTimeout(() => btn.classList.remove('spin'), 1000);
-        });
-        
-        document.getElementById('themeToggle')?.addEventListener('click', () => {
-            this.toggleTheme();
-        });
-        
-        document.getElementById('searchProcess')?.addEventListener('input', (e) => {
-            this.filterProcesses(e.target.value);
-        });
-        
-        document.getElementById('sortBy')?.addEventListener('change', () => {
-            if (this.isOnline) {
-                this.loadSystemData();
-            }
-        });
-        
-        document.getElementById('updateInterval')?.addEventListener('change', (e) => {
-            this.updatePollingInterval(parseInt(e.target.value));
-        });
-        
-        document.getElementById('historyRange')?.addEventListener('change', (e) => {
-            this.updateHistoryRange(parseInt(e.target.value));
-        });
-    }
-
     filterProcesses(searchTerm) {
-        const rows = document.querySelectorAll('#processTableBody tr');
         const term = searchTerm.toLowerCase();
-        
-        rows.forEach(row => {
-            const name = row.querySelector('.process-name').textContent.toLowerCase();
-            const command = row.querySelector('.command').textContent.toLowerCase();
-            const pid = row.querySelector('.pid').textContent;
-            
-            const matches = name.includes(term) || 
-                          command.includes(term) || 
-                          pid.includes(term);
-            
-            row.style.display = matches ? '' : 'none';
+        this.filteredProcesses = this.allProcesses.filter((proc) => {
+            const name = String(proc.name || '').toLowerCase();
+            const command = String(proc.command || '').toLowerCase();
+            const pid = String(proc.pid || '');
+            return name.includes(term) || command.includes(term) || pid.includes(term);
         });
+        this.renderProcessesPage(1);
     }
 
     toggleTheme() {
@@ -1317,6 +1291,11 @@ class SystemMonitor {
     }
 
     initializeGauges() {
+        if (typeof Chart === 'undefined') {
+            console.warn('⚠️ Chart.js not loaded, gauges skipped');
+            return;
+        }
+
         const cpuCtx = document.getElementById('cpuGauge');
         if (cpuCtx) {
             this.cpuGauge = new Chart(cpuCtx.getContext('2d'), {
@@ -1435,4 +1414,3 @@ document.addEventListener('DOMContentLoaded', () => {
         window.sysmon = new SystemMonitor();
     }
 });
-

@@ -74,7 +74,34 @@ static int test_json_basic_structure() {
     return 1;
 }
 
+static int test_json_escapes_gpu_name() {
+    char buffer[8192];
+
+    CPUStats cpu;
+    CPUStats cores[2];
+    MemoryInfo mem;
+    GPUInfo gpu;
+    ProcessInfo processes[1];
+
+    mock_cpu_stats(&cpu);
+    mock_cores(cores, 2);
+    mock_memory(&mem);
+    mock_gpu(&gpu);
+    mock_processes(processes, 1);
+    strcpy(gpu.name, "GPU \"quoted\" \\ slash");
+
+    format_system_info_json(buffer, sizeof(buffer),
+                           &cpu, cores, 2,
+                           &mem, &gpu, processes, 1);
+
+    TEST_ASSERT(strstr(buffer, "GPU \\\"quoted\\\" \\\\ slash") != NULL);
+    TEST_ASSERT(strstr(buffer, "GPU \"quoted\" \\ slash") == NULL);
+
+    return 1;
+}
+
 // Сьют тестов
 void test_json_formatter_suite() {
     RUN_TEST(test_json_basic_structure);
+    RUN_TEST(test_json_escapes_gpu_name);
 }

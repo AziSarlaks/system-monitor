@@ -77,23 +77,8 @@ double get_cpu_temperature() {
         pclose(fp);
     }
     
-    printf("⚠️ Could not read CPU temperature, using estimated value\n");
-
-    CPUStats cpu;
-    CPUStats cores[MAX_CORES];
-    int cores_count;
-    
-    if (read_cpu_stats(&cpu, cores, &cores_count) == 0) {
-        temp = 30.0 + cpu.usage_percent * 0.5;
-        if (temp > 90.0) temp = 90.0;
-    } else {
-        temp = 45.0; // Значение по умолчанию
-    }
-    
-    printf("ℹ️ Using estimated temperature: %.1f°C (based on %.1f%% CPU load)\n", 
-           temp, cpu.usage_percent);
-    
-    return temp;
+    printf("⚠️ Could not read CPU temperature, using default value\n");
+    return 45.0;
 }
 
 unsigned long get_cpu_frequency() {
@@ -175,7 +160,6 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
     }
     
     double temp = get_cpu_temperature();
-    cpu->temperature = temp;
 
     char line[256];
     *cores_count = 0;
@@ -194,7 +178,7 @@ int read_cpu_stats(CPUStats *cpu, CPUStats *cores, int *cores_count) {
             cpu->usage_percent = 0.0;
             
             // Добавляем температуру и частоту для общего CPU
-            cpu->temperature = get_cpu_temperature();
+            cpu->temperature = temp;
             cpu->frequency = get_cpu_frequency();
         }
         else if (strncmp(line, "cpu", 3) == 0 && isdigit(line[3])) {
@@ -291,15 +275,13 @@ int read_memory_info(MemoryInfo *mem) {
     if (available > 0) {
         mem->used = mem->total - (available * 1024);
     } else {
-        unsigned long long used_kb = total - free - buffers - cached - sreclaimable;
+        unsigned long long reclaimable_kb = free + buffers + cached + sreclaimable;
+        unsigned long long used_kb = total > reclaimable_kb ? total - reclaimable_kb : 0;
         mem->used = used_kb * 1024;
     }
     
     if (mem->used > mem->total) {
         mem->used = mem->total;
-    }
-    if (mem->used < 0) {
-        mem->used = 0;
     }
     
     if (mem->total > 0) {
@@ -568,7 +550,6 @@ int get_processes(ProcessInfo *processes, int *count) {
     *count = 0;
     
     static unsigned long long prev_total = 0;
-    static unsigned long long prev_idle = 0;
     unsigned long long total = 0, idle = 0;
     
     FILE *stat_fp = fopen("/proc/stat", "r");
@@ -645,7 +626,8 @@ int get_processes(ProcessInfo *processes, int *count) {
                        comm, &utime, &stime, &rss_pages);
                 
                 if (strlen(comm) > 0 && strcmp(p->name, "unknown") == 0) {
-                    strncpy(p->name, comm, 255);
+                    strncpy(p->name, comm, sizeof(p->name) - 1);
+                    p->name[sizeof(p->name) - 1] = '\0';
                 }
                 
                 static unsigned long long prev_utime[MAX_PROCESSES] = {0};
@@ -725,7 +707,7 @@ int get_processes(ProcessInfo *processes, int *count) {
     closedir(dir);
     
     prev_total = total;
-    prev_idle = idle;
+    (void)idle;
     
     for (int i = 0; i < *count - 1; i++) {
         for (int j = i + 1; j < *count; j++) {

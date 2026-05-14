@@ -6,14 +6,13 @@ LDFLAGS = -lpthread -lm
 # Директории
 TEST_DIR = tests
 BACKEND_SRC = backend/src
-BACKEND_BUILD = backend/build
+BACKEND_BUILD = backend/build-test
 
 # Исходные файлы бэкенда (НЕ включаем main.c!)
 REAL_SOURCES = $(BACKEND_SRC)/proc_parser.c \
                $(BACKEND_SRC)/json_formatter.c \
                $(BACKEND_SRC)/history.c \
-               $(BACKEND_SRC)/server.c \
-               $(BACKEND_SRC)/system_info.c
+               $(BACKEND_SRC)/server.c
 # main.c НЕ включаем - у нас свой main в test_runner.c
 
 # Исходные файлы тестов
