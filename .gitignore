@@ -1,0 +1,34 @@
+# Build directories
+build/
+app/build/
+app/build-test/
+backend/build/
+backend/build-test/
+
+# Packaging output
+dist/
+*.deb
+*.rpm
+*.AppImage
+
+# Compiled artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+test_runner
+
+# Runtime/debug artifacts
+core
+core.*
+*.log
+*.tmp
+*.swp
+
+# Tooling caches
+.cache/
+compile_commands.json
+.vscode/
+.idea/

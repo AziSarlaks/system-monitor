@@ -14,6 +14,9 @@ LDFLAGS = $(shell $(PKG_CONFIG) --libs gtk+-3.0) -lm
 OBJECTS = \
 	$(BUILD_DIR)/$(SRC_DIR)/main.o \
 	$(BUILD_DIR)/$(SRC_DIR)/app_metrics.o \
+	$(BUILD_DIR)/$(SRC_DIR)/metrics_sampler.o \
+	$(BUILD_DIR)/$(SRC_DIR)/notifications.o \
+	$(BUILD_DIR)/$(SRC_DIR)/theme.o \
 	$(BUILD_DIR)/backend/proc_parser.o \
 	$(BUILD_DIR)/backend/history.o
 TARGET = $(BUILD_DIR)/$(APP_NAME)

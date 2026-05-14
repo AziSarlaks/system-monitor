@@ -1,6 +1,7 @@
 #include "app_metrics.h"
 
 #include <stdio.h>
+#include <strings.h>
 
 double app_clamp_double(double value, double min, double max) {
     if (value < min) return min;
@@ -52,4 +53,81 @@ int app_visible_process_rows(int process_count, int max_rows) {
     }
 
     return max_rows;
+}
+
+int app_alert_update_high(double value,
+                          double trigger_threshold,
+                          double recovery_threshold,
+                          int required_samples,
+                          int *active,
+                          int *samples) {
+    if (!active || !samples) {
+        return 0;
+    }
+    if (required_samples < 1) {
+        required_samples = 1;
+    }
+
+    if (*active) {
+        if (value <= recovery_threshold) {
+            *active = 0;
+            *samples = 0;
+        }
+        return 0;
+    }
+
+    if (value >= trigger_threshold) {
+        (*samples)++;
+        if (*samples >= required_samples) {
+            *active = 1;
+            return 1;
+        }
+    } else {
+        *samples = 0;
+    }
+
+    return 0;
+}
+
+int app_alert_update_low(double value,
+                         double trigger_threshold,
+                         double recovery_threshold,
+                         int required_samples,
+                         int *active,
+                         int *samples) {
+    if (!active || !samples) {
+        return 0;
+    }
+    if (required_samples < 1) {
+        required_samples = 1;
+    }
+
+    if (*active) {
+        if (value >= recovery_threshold) {
+            *active = 0;
+            *samples = 0;
+        }
+        return 0;
+    }
+
+    if (value <= trigger_threshold) {
+        (*samples)++;
+        if (*samples >= required_samples) {
+            *active = 1;
+            return 1;
+        }
+    } else {
+        *samples = 0;
+    }
+
+    return 0;
+}
+
+int app_battery_status_can_alert(const BatteryInfo *battery) {
+    if (!battery || !battery->present) {
+        return 0;
+    }
+
+    return strcasecmp(battery->status, "Charging") != 0 &&
+           strcasecmp(battery->status, "Full") != 0;
 }
